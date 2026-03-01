@@ -7,6 +7,21 @@ datasource db {
   provider = "sqlite"
 }
 
+model StockSnapshot {
+  symbol    String   @id
+  name      String
+  sector    String
+  price     Float
+  prevClose Float
+  change    Float
+  changePct Float
+  dayOpen   Float
+  dayHigh   Float
+  dayLow    Float
+  volume    Int
+  updatedAt DateTime @updatedAt
+}
+
 model HistoryBar {
   id        String   @id @default(cuid())
   symbol    String

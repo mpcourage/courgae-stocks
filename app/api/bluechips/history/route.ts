@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import YahooFinance from "yahoo-finance2";
 import { BLUE_CHIP_SYMBOLS } from "@/lib/bluechips";
 import { prisma } from "@/lib/prisma";
+import { isMarketOpen } from "@/lib/marketHours";
 
 const yahooFinance = new YahooFinance();
 
@@ -26,6 +27,26 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // Outside market hours — serve directly from DB, skip Yahoo fetch
+    if (!isMarketOpen()) {
+      const bars = await prisma.historyBar.findMany({
+        where: { symbol },
+        orderBy: { date: "asc" },
+      });
+      return NextResponse.json({
+        symbol,
+        marketOpen: false,
+        bars: bars.map((b) => ({
+          date: b.date.toISOString(),
+          open: b.open,
+          high: b.high,
+          low: b.low,
+          close: b.close,
+          volume: b.volume,
+        })),
+      });
+    }
+
     // 1. Fetch fresh bars from Yahoo Finance
     const end = new Date();
     const start = cutoffDate();
@@ -75,6 +96,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       symbol,
+      marketOpen: true,
       bars: bars.map((b) => ({
         date: b.date.toISOString(),
         open: b.open,

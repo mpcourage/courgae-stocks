@@ -61,6 +61,7 @@ export default function BlueChipsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [marketOpen, setMarketOpen] = useState<boolean | null>(null);
   const [countdown, setCountdown] = useState(60);
 
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
@@ -81,6 +82,7 @@ export default function BlueChipsPage() {
       if (data.error) throw new Error(data.error);
       setStocks(data.stocks ?? []);
       setUpdatedAt(data.updatedAt ?? null);
+      setMarketOpen(data.marketOpen ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -174,9 +176,17 @@ export default function BlueChipsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Blue Chip Tracker</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-white">Blue Chip Tracker</h1>
+            {marketOpen !== null && (
+              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${marketOpen ? "bg-green-500/20 text-green-400 border border-green-500/30" : "bg-slate-700/50 text-slate-400 border border-slate-600"}`}>
+                {marketOpen ? "● Market Open" : "● Market Closed"}
+              </span>
+            )}
+          </div>
           <p className="text-sm text-slate-400 mt-0.5">
             Top 50 US blue chip stocks — 60-day history on click · auto-refreshes every 60s
+            {marketOpen === false && " · showing cached data"}
           </p>
         </div>
         <div className="flex items-center gap-3">
