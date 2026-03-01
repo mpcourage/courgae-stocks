@@ -75,12 +75,13 @@ export default function WelcomePage() {
           style={{
             marginTop: "4rem",
             display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
+            gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
             gap: "1.5rem",
           }}
         >
           {[
             { icon: "📊", title: "Blue Chips", desc: "Top 50 stocks with 60-day history" },
+            { icon: "📈", title: "Rising Stocks", desc: "Momentum ranking by trend, RSI & volume" },
             { icon: "⚡", title: "Strategies", desc: "Scalping scanner with VWAP, RSI & EMA signals" },
             { icon: "🛡️", title: "Risk Controls", desc: "Confidence thresholds & stop-loss" },
           ].map((feature) => (
