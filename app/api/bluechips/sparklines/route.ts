@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import YahooFinance from "yahoo-finance2";
 import { BLUE_CHIP_SYMBOLS } from "@/lib/bluechips";
 import { prisma } from "@/lib/prisma";
-import { isMarketOpen } from "@/lib/marketHours";
-
 const yahooFinance = new YahooFinance();
 
 const DAYS = 60;
@@ -35,7 +33,8 @@ export async function GET() {
       (s) => !dbBySymbol[s] || dbBySymbol[s].length < 5
     );
 
-    if (missing.length > 0 && isMarketOpen()) {
+    // Always fetch missing symbols — Yahoo returns data 24/7
+    if (missing.length > 0) {
       const end = new Date();
       const results = await Promise.allSettled(
         missing.map((symbol) =>
@@ -66,8 +65,6 @@ export async function GET() {
           dbBySymbol[symbol] = closes;
         })
       );
-    } else if (missing.length > 0) {
-      for (const s of missing) dbBySymbol[s] = [];
     }
 
     return NextResponse.json(dbBySymbol);
