@@ -254,8 +254,8 @@ export default function MultiChartsPage() {
   // Per-SMA trend filter: period → Set of selected trends (empty Set = no filter for that SMA)
   // Within one SMA: OR logic. Across SMAs: AND logic.
   const [smaFilters, setSmaFilters] = useState<Record<number, Set<Trend>>>({});
-  const [cols, setCols] = useState(3);
-  const [chartHeight, setChartHeight] = useState(200);
+  const [cols, setCols] = useState(1);
+  const [chartHeight, setChartHeight] = useState(400);
   const [smas, setSmas] = useState<SMAConfig[]>(DEFAULT_SMAS);
   const abortRef = useRef<AbortController | null>(null);
 
