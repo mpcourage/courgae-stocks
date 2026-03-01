@@ -81,8 +81,8 @@ export default function WelcomePage() {
         >
           {[
             { icon: "📊", title: "Blue Chips", desc: "Top 50 stocks with 60-day history" },
+            { icon: "⚡", title: "Strategies", desc: "Scalping scanner with VWAP, RSI & EMA signals" },
             { icon: "🛡️", title: "Risk Controls", desc: "Confidence thresholds & stop-loss" },
-            { icon: "⚡", title: "Multi-Broker", desc: "Alpaca, IBKR, and Schwab support" },
           ].map((feature) => (
             <div
               key={feature.title}
