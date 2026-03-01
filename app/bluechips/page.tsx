@@ -57,6 +57,16 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+async function safeJson(res: Response) {
+  const text = await res.text();
+  if (!text) throw new Error(`Server returned empty response (${res.status})`);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`Invalid JSON from server: ${text.slice(0, 120)}`);
+  }
+}
+
 export default function BlueChipsPage() {
   const [stocks, setStocks] = useState<StockSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,7 +92,7 @@ export default function BlueChipsPage() {
       setLoading(true);
       setError(null);
       const res = await fetch("/api/bluechips");
-      const data = await res.json();
+      const data = await safeJson(res);
       if (data.error) throw new Error(data.error);
       setStocks(data.stocks ?? []);
       setUpdatedAt(data.updatedAt ?? null);
@@ -98,7 +108,7 @@ export default function BlueChipsPage() {
     setSparkloading(true);
     try {
       const res = await fetch("/api/bluechips/sparklines");
-      const data = await res.json();
+      const data = await safeJson(res);
       setSparklines(data);
     } catch {
       // non-critical — sparklines stay empty
@@ -130,7 +140,7 @@ export default function BlueChipsPage() {
     if (!selectedSymbol) { setHistoryBars([]); return; }
     setHistoryLoading(true);
     fetch(`/api/bluechips/history?symbol=${selectedSymbol}`)
-      .then((r) => r.json())
+      .then((r) => safeJson(r))
       .then((d) => { if (!d.error) setHistoryBars(d.bars ?? []); })
       .catch(() => {})
       .finally(() => setHistoryLoading(false));

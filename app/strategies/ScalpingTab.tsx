@@ -3,6 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ScalpingCandidate } from "@/app/api/strategies/scalping/route";
 
+async function safeJson(res: Response) {
+  const text = await res.text();
+  if (!text) throw new Error(`Server returned empty response (${res.status})`);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`Invalid JSON from server: ${text.slice(0, 120)}`);
+  }
+}
+
 const SIGNAL_META = {
   strong_buy:  { label: "Strong Buy",  bg: "bg-emerald-500/20", text: "text-emerald-400", border: "border-emerald-500/40" },
   buy:         { label: "Buy",         bg: "bg-green-500/20",   text: "text-green-400",   border: "border-green-500/40" },
@@ -58,7 +68,7 @@ export default function ScalpingTab() {
     setError(null);
     try {
       const res = await fetch("/api/strategies/scalping");
-      const data = await res.json();
+      const data = await safeJson(res);
       if (data.error) throw new Error(data.error);
       setCandidates(data.candidates ?? []);
       setFetchedAt(data.fetchedAt ?? null);

@@ -9,6 +9,7 @@ const yahooFinance = new YahooFinance();
 export async function GET() {
   const marketOpen = isMarketOpen();
 
+  try {
   // Outside market hours — serve cached snapshots from DB
   if (!marketOpen) {
     const cached = await prisma.stockSnapshot.findMany();
@@ -24,7 +25,7 @@ export async function GET() {
   }
 
   // Market is open — fetch live from Yahoo Finance
-  try {
+  {
     const results = await Promise.allSettled(
       BLUE_CHIPS.map((chip) =>
         yahooFinance.quote(chip.symbol, {
@@ -69,6 +70,7 @@ export async function GET() {
     );
 
     return NextResponse.json({ stocks, updatedAt: new Date().toISOString(), marketOpen: true });
+  }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
