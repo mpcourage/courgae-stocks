@@ -20,7 +20,7 @@ export interface OHLCBar {
 }
 
 export interface SMAConfig {
-  period: number;
+  period: number | "close";
   color: string;
   visible: boolean;
 }
@@ -37,6 +37,10 @@ function computeSMA(bars: OHLCBar[], period: number) {
     const avg = slice.reduce((s, b) => s + b.close, 0) / period;
     return { time: bar.time, value: avg };
   }).filter(Boolean) as { time: number; value: number }[];
+}
+
+function computeCloseLine(bars: OHLCBar[]) {
+  return bars.map((b) => ({ time: b.time, value: b.close }));
 }
 
 export default function CandlestickChart({ bars, smas }: Props) {
@@ -71,16 +75,16 @@ export default function CandlestickChart({ bars, smas }: Props) {
 
     // Candlestick series
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor:        "#4ade80",
-      downColor:      "#f87171",
-      borderUpColor:  "#4ade80",
-      borderDownColor:"#f87171",
-      wickUpColor:    "#4ade80",
-      wickDownColor:  "#f87171",
+      upColor:         "#4ade80",
+      downColor:       "#f87171",
+      borderUpColor:   "#4ade80",
+      borderDownColor: "#f87171",
+      wickUpColor:     "#4ade80",
+      wickDownColor:   "#f87171",
     });
     candleSeries.setData(bars as never);
 
-    // Volume histogram (bottom pane via price scale)
+    // Volume histogram
     const volSeries = chart.addSeries(HistogramSeries, {
       color: "#334155",
       priceFormat: { type: "volume" },
@@ -97,25 +101,34 @@ export default function CandlestickChart({ bars, smas }: Props) {
       })) as never
     );
 
-    // SMA lines
-    const smaSeriesList: ReturnType<typeof chart.addSeries>[] = [];
+    // MA / Close lines
     for (const sma of smas) {
       if (!sma.visible) continue;
-      const line = chart.addSeries(LineSeries, {
-        color: sma.color,
-        lineWidth: 1.5,
-        priceLineVisible: false,
-        lastValueVisible: true,
-        title: `SMA${sma.period}`,
-      });
-      const data = computeSMA(bars, sma.period);
-      line.setData(data as never);
-      smaSeriesList.push(line);
+
+      if (sma.period === "close") {
+        const line = chart.addSeries(LineSeries, {
+          color: sma.color,
+          lineWidth: 1,
+          lineStyle: 1, // dashed
+          priceLineVisible: false,
+          lastValueVisible: true,
+          title: "Close",
+        });
+        line.setData(computeCloseLine(bars) as never);
+      } else {
+        const line = chart.addSeries(LineSeries, {
+          color: sma.color,
+          lineWidth: 1.5,
+          priceLineVisible: false,
+          lastValueVisible: true,
+          title: `SMA${sma.period}`,
+        });
+        line.setData(computeSMA(bars, sma.period) as never);
+      }
     }
 
     chart.timeScale().fitContent();
 
-    // Resize observer
     const ro = new ResizeObserver(() => {
       chart.applyOptions({
         width: container.clientWidth,

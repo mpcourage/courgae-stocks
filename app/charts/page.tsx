@@ -18,9 +18,9 @@ const PERIODS = [
 ];
 
 const SMA_PRESETS: SMAConfig[] = [
-  { period: 20,  color: "#f59e0b", visible: true },
-  { period: 50,  color: "#38bdf8", visible: false },
-  { period: 200, color: "#a78bfa", visible: false },
+  { period: 5,       color: "#4ade80", visible: true },
+  { period: 44,      color: "#f59e0b", visible: true },
+  { period: "close", color: "#94a3b8", visible: true },
 ];
 
 async function safeJson(res: Response) {
@@ -179,7 +179,9 @@ export default function ChartsPage() {
                     className="w-3 h-3 rounded-full shrink-0"
                     style={{ background: sma.color }}
                   />
-                  <span className="text-slate-200">SMA {sma.period}</span>
+                  <span className="text-slate-200">
+                    {sma.period === "close" ? "Close Price" : `SMA ${sma.period}`}
+                  </span>
                 </button>
                 <button
                   onClick={() => removeSMA(i)}
