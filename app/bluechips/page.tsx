@@ -10,6 +10,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import Sparkline from "@/components/Sparkline";
 
 interface StockSnapshot {
   symbol: string;
@@ -64,6 +65,9 @@ export default function BlueChipsPage() {
   const [marketOpen, setMarketOpen] = useState<boolean | null>(null);
   const [countdown, setCountdown] = useState(60);
 
+  const [sparklines, setSparklines] = useState<Record<string, number[]>>({});
+  const [sparkloading, setSparkloading] = useState(false);
+
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [historyBars, setHistoryBars] = useState<HistoryBar[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -90,17 +94,37 @@ export default function BlueChipsPage() {
     }
   }, []);
 
-  useEffect(() => { fetchStocks(); }, [fetchStocks]);
+  const fetchSparklines = useCallback(async () => {
+    setSparkloading(true);
+    try {
+      const res = await fetch("/api/bluechips/sparklines");
+      const data = await res.json();
+      setSparklines(data);
+    } catch {
+      // non-critical — sparklines stay empty
+    } finally {
+      setSparkloading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStocks();
+    fetchSparklines();
+  }, [fetchStocks, fetchSparklines]);
 
   useEffect(() => {
     const t = setInterval(() => {
       setCountdown((prev) => {
-        if (prev <= 1) { fetchStocks(); return 60; }
+        if (prev <= 1) {
+          fetchStocks();
+          fetchSparklines();
+          return 60;
+        }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(t);
-  }, [fetchStocks]);
+  }, [fetchStocks, fetchSparklines]);
 
   useEffect(() => {
     if (!selectedSymbol) { setHistoryBars([]); return; }
@@ -185,7 +209,7 @@ export default function BlueChipsPage() {
             )}
           </div>
           <p className="text-sm text-slate-400 mt-0.5">
-            Top 50 US blue chip stocks — 60-day history on click · auto-refreshes every 60s
+            Top 50 US blue chip stocks · 60-day sparklines · auto-refreshes every 60s
             {marketOpen === false && " · showing cached data"}
           </p>
         </div>
@@ -194,7 +218,7 @@ export default function BlueChipsPage() {
             Next refresh: <span className="font-mono font-semibold text-white">{countdown}s</span>
           </span>
           <button
-            onClick={() => { fetchStocks(); setCountdown(60); }}
+            onClick={() => { fetchStocks(); fetchSparklines(); setCountdown(60); }}
             disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm text-slate-200 disabled:opacity-50 transition-colors"
           >
@@ -271,12 +295,10 @@ export default function BlueChipsPage() {
                   <th className="px-3 py-3 text-right cursor-pointer hover:text-white select-none" onClick={() => handleSort("price")}>
                     Price <SortArrow col="price" />
                   </th>
-                  <th className="px-3 py-3 text-right cursor-pointer hover:text-white select-none" onClick={() => handleSort("change")}>
-                    Change <SortArrow col="change" />
-                  </th>
                   <th className="px-3 py-3 text-right cursor-pointer hover:text-white select-none" onClick={() => handleSort("changePct")}>
                     Change % <SortArrow col="changePct" />
                   </th>
+                  <th className="px-3 py-3 text-center">60-Day Chart</th>
                   <th className="px-3 py-3 text-right">Day Range</th>
                   <th className="px-3 py-3 text-right cursor-pointer hover:text-white select-none" onClick={() => handleSort("volume")}>
                     Volume <SortArrow col="volume" />
@@ -294,27 +316,36 @@ export default function BlueChipsPage() {
                         : "hover:bg-slate-800/50"
                     }`}
                   >
-                    <td className="px-3 py-2.5 text-center text-slate-500">{idx + 1}</td>
-                    <td className="px-3 py-2.5 font-bold text-white">{stock.symbol}</td>
-                    <td className="px-3 py-2.5 text-slate-400 max-w-[180px] truncate">{stock.name}</td>
-                    <td className="px-3 py-2.5">
+                    <td className="px-3 py-2 text-center text-slate-500">{idx + 1}</td>
+                    <td className="px-3 py-2 font-bold text-white">{stock.symbol}</td>
+                    <td className="px-3 py-2 text-slate-400 max-w-[160px] truncate">{stock.name}</td>
+                    <td className="px-3 py-2">
                       <span className="px-2 py-0.5 rounded-full text-xs bg-slate-800 border border-slate-700 text-slate-300">
                         {stock.sector}
                       </span>
                     </td>
-                    <td className="px-3 py-2.5 text-right font-mono font-semibold text-white">
+                    <td className="px-3 py-2 text-right font-mono font-semibold text-white">
                       {fmt(stock.price)}
                     </td>
-                    <td className={`px-3 py-2.5 text-right font-mono text-sm ${stock.change >= 0 ? "text-green-400" : "text-red-400"}`}>
-                      {stock.change !== 0 ? `${stock.change >= 0 ? "+" : ""}${stock.change.toFixed(2)}` : "—"}
-                    </td>
-                    <td className={`px-3 py-2.5 text-right font-mono font-semibold ${stock.changePct >= 0 ? "text-green-400" : "text-red-400"}`}>
+                    <td className={`px-3 py-2 text-right font-mono font-semibold ${stock.changePct >= 0 ? "text-green-400" : "text-red-400"}`}>
                       {stock.changePct !== 0 ? fmtPct(stock.changePct) : "—"}
                     </td>
-                    <td className="px-3 py-2.5 text-right font-mono text-xs text-slate-400">
+                    <td className="px-3 py-2 text-center">
+                      {sparkloading && !sparklines[stock.symbol] ? (
+                        <div className="w-[120px] h-[36px] rounded bg-slate-800 animate-pulse mx-auto" />
+                      ) : (
+                        <div className="flex justify-center">
+                          <Sparkline
+                            data={sparklines[stock.symbol] ?? []}
+                            positive={stock.changePct >= 0}
+                          />
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-xs text-slate-400">
                       {stock.dayHigh > 0 ? `$${stock.dayLow.toFixed(2)} – $${stock.dayHigh.toFixed(2)}` : "—"}
                     </td>
-                    <td className="px-3 py-2.5 text-right font-mono text-sm text-slate-300">
+                    <td className="px-3 py-2 text-right font-mono text-sm text-slate-300">
                       {fmtVol(stock.volume)}
                     </td>
                   </tr>
@@ -332,7 +363,7 @@ export default function BlueChipsPage() {
         )}
       </div>
 
-      {/* 60-day chart */}
+      {/* Full 60-day chart on row click */}
       {selectedSymbol && (
         <div className="rounded-xl bg-slate-900 border border-slate-800 p-5">
           <div className="flex items-center justify-between mb-4">
