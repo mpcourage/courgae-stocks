@@ -62,7 +62,7 @@ export default function CandlestickChart({ bars, smas }: Props) {
         horzLines: { color: "#1e293b" },
       },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#334155" },
+      rightPriceScale: { borderColor: "#334155", visible: false },
       timeScale: {
         borderColor: "#334155",
         timeVisible: true,
