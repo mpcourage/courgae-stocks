@@ -101,6 +101,17 @@ function detectTrend(bars: OHLCBar[], period: number): Trend {
   return "sideways";
 }
 
+// Majority-vote across all visible numeric SMAs
+function stockTrend(bars: OHLCBar[], smas: SMAConfig[]): Trend {
+  const visible = smas.filter((s) => s.visible && typeof s.period === "number");
+  if (visible.length === 0 || bars.length === 0) return "sideways";
+  const counts = { up: 0, sideways: 0, down: 0 };
+  for (const sma of visible) counts[detectTrend(bars, sma.period as number)]++;
+  if (counts.up > counts.down && counts.up >= counts.sideways) return "up";
+  if (counts.down > counts.up && counts.down >= counts.sideways) return "down";
+  return "sideways";
+}
+
 // ─── Mini chart card ──────────────────────────────────────────────────────────
 
 function SmaTrendStrip({ bars, smas }: { bars: OHLCBar[]; smas: SMAConfig[] }) {
@@ -250,6 +261,7 @@ export default function MultiChartsPage() {
   const [timeframe, setTimeframe] = useState("1d");
   const [lookbackDays, setLookbackDays] = useState(90);
   const [sector, setSector] = useState("All");
+  const [trendFilter, setTrendFilter] = useState<Set<Trend>>(new Set());
   const [cols, setCols] = useState(3);
   const [chartHeight, setChartHeight] = useState(200);
   const [smas, setSmas] = useState<SMAConfig[]>(DEFAULT_SMAS);
@@ -424,6 +436,53 @@ export default function MultiChartsPage() {
             onAdd={(p, c) => setSmas((prev) => [...prev, { period: p, color: c, visible: true }])}
           />
         </div>
+
+        {/* Row 3: trend filter pills */}
+        {charts.length > 0 && (() => {
+          const counts = { up: 0, sideways: 0, down: 0 };
+          for (const entry of charts) counts[stockTrend(entry.bars, smas)]++;
+          const pills: { trend: Trend; label: string; count: number; activeClass: string; dotColor: string }[] = [
+            { trend: "up",       label: "↑ Uptrend",   count: counts.up,       activeClass: "bg-emerald-700/60 border-emerald-600 text-emerald-300", dotColor: "#4ade80" },
+            { trend: "sideways", label: "→ Sideways",  count: counts.sideways, activeClass: "bg-slate-700/60 border-slate-500 text-slate-300",       dotColor: "#94a3b8" },
+            { trend: "down",     label: "↓ Downtrend", count: counts.down,     activeClass: "bg-red-900/50 border-red-700 text-red-300",             dotColor: "#f87171" },
+          ];
+          const toggle = (t: Trend) => setTrendFilter((prev) => {
+            const next = new Set(prev);
+            next.has(t) ? next.delete(t) : next.add(t);
+            return next;
+          });
+          return (
+            <div className="border-t border-slate-800 pt-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider shrink-0">Trend:</span>
+              {pills.map(({ trend, label, count, activeClass, dotColor }) => {
+                const active = trendFilter.has(trend);
+                return (
+                  <button
+                    key={trend}
+                    onClick={() => toggle(trend)}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-medium transition-colors ${
+                      active
+                        ? activeClass
+                        : "bg-transparent border-slate-700 text-slate-500 hover:border-slate-500 hover:text-slate-300"
+                    }`}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: active ? dotColor : "#475569" }} />
+                    {label}
+                    <span className={`text-[10px] font-mono ${active ? "opacity-90" : "opacity-50"}`}>({count})</span>
+                  </button>
+                );
+              })}
+              {trendFilter.size > 0 && (
+                <button
+                  onClick={() => setTrendFilter(new Set())}
+                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors ml-1"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {error && (
@@ -444,13 +503,23 @@ export default function MultiChartsPage() {
       )}
 
       {/* Chart grid */}
-      {charts.length > 0 && (
-        <div className={`grid ${colClass[cols] ?? "grid-cols-3"} gap-3`}>
-          {charts.map((entry) => (
-            <ChartCard key={entry.symbol} entry={entry} smas={smas} height={chartHeight} />
-          ))}
-        </div>
-      )}
+      {charts.length > 0 && (() => {
+        const visible = trendFilter.size === 0
+          ? charts
+          : charts.filter((e) => trendFilter.has(stockTrend(e.bars, smas)));
+        return (
+          <div className={`grid ${colClass[cols] ?? "grid-cols-3"} gap-3`}>
+            {visible.map((entry) => (
+              <ChartCard key={entry.symbol} entry={entry} smas={smas} height={chartHeight} />
+            ))}
+            {visible.length === 0 && (
+              <div className="col-span-full py-16 text-center text-slate-500 text-sm">
+                No stocks match the selected trend filter
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
