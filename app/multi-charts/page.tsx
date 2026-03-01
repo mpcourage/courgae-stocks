@@ -46,6 +46,7 @@ const LOOKBACKS = [
 const SECTORS = ["All", ...Array.from(new Set(BLUE_CHIPS.map((c) => c.sector)))];
 
 const COLS_OPTIONS = [
+  { label: "1", value: 1 },
   { label: "2", value: 2 },
   { label: "3", value: 3 },
   { label: "4", value: 4 },
@@ -299,6 +300,7 @@ export default function MultiChartsPage() {
   useEffect(() => { fetchCharts(timeframe, sector, lookbackDays); }, [timeframe, sector, lookbackDays, fetchCharts]);
 
   const colClass: Record<number, string> = {
+    1: "grid-cols-1",
     2: "grid-cols-1 sm:grid-cols-2",
     3: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
     4: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4",
