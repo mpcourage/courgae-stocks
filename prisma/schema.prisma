@@ -1,0 +1,23 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model HistoryBar {
+  id        String   @id @default(cuid())
+  symbol    String
+  date      DateTime
+  open      Float
+  high      Float
+  low       Float
+  close     Float
+  volume    Int
+  createdAt DateTime @default(now())
+
+  @@unique([symbol, date])
+  @@index([symbol, date])
+}
