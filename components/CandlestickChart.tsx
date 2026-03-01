@@ -47,6 +47,22 @@ export default function CandlestickChart({ bars, smas }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<ReturnType<typeof createChart> | null>(null);
 
+  // Allow page to scroll when wheel is used without Ctrl/Cmd.
+  // In capture phase we intercept wheel events before lightweight-charts sees them;
+  // if no modifier key is held we stop the chart from consuming the event and
+  // manually forward the scroll delta to the page instead.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) return; // Ctrl/Cmd+wheel → chart zoom, as normal
+      e.stopPropagation();                // prevent lightweight-charts from grabbing it
+      window.scrollBy({ top: e.deltaY, behavior: "auto" });
+    };
+    container.addEventListener("wheel", onWheel, { capture: true, passive: false });
+    return () => container.removeEventListener("wheel", onWheel, { capture: true });
+  }, []);
+
   useEffect(() => {
     if (!containerRef.current || bars.length === 0) return;
 
