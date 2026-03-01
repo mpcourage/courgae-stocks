@@ -67,7 +67,62 @@ async function safeJson(res: Response) {
   try { return JSON.parse(text); } catch { throw new Error(text.slice(0, 120)); }
 }
 
+// Compute the last `windowSize` SMA values from bar closes
+function smaSlice(bars: OHLCBar[], period: number, windowSize: number): number[] {
+  if (bars.length < period) return [];
+  const out: number[] = [];
+  // Only compute the last `windowSize` values
+  const start = Math.max(period - 1, bars.length - windowSize);
+  for (let i = start; i < bars.length; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += bars[j].close;
+    out.push(sum / period);
+  }
+  return out;
+}
+
+type Trend = "up" | "sideways" | "down";
+
+// Compare avg of first-half vs second-half of the recent SMA window
+function detectTrend(bars: OHLCBar[], period: number): Trend {
+  const window = Math.min(10, Math.max(4, Math.ceil(period / 3)));
+  const vals = smaSlice(bars, period, window);
+  if (vals.length < 4) return "sideways";
+
+  const mid = Math.floor(vals.length / 2);
+  const avgFirst  = vals.slice(0, mid).reduce((s, v) => s + v, 0) / mid;
+  const avgSecond = vals.slice(mid).reduce((s, v) => s + v, 0) / (vals.length - mid);
+  const pct = (avgSecond - avgFirst) / avgFirst * 100;
+
+  if (pct >  0.25) return "up";
+  if (pct < -0.25) return "down";
+  return "sideways";
+}
+
 // ─── Mini chart card ──────────────────────────────────────────────────────────
+
+function SmaTrendStrip({ bars, smas }: { bars: OHLCBar[]; smas: SMAConfig[] }) {
+  const visible = smas.filter((s) => s.visible && typeof s.period === "number");
+  if (visible.length === 0 || bars.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-3 px-3 py-1 bg-slate-950/50 border-b border-slate-800/40">
+      {visible.map((sma) => {
+        const trend = detectTrend(bars, sma.period as number);
+        const arrow = trend === "up" ? "↑" : trend === "down" ? "↓" : "→";
+        const arrowColor =
+          trend === "up" ? "#4ade80" : trend === "down" ? "#f87171" : "#64748b";
+        return (
+          <span key={sma.period} className="flex items-center gap-1 text-[11px] font-mono">
+            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: sma.color }} />
+            <span style={{ color: sma.color }}>{sma.period}</span>
+            <span style={{ color: arrowColor }} className="font-bold">{arrow}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 function ChartCard({ entry, smas, height }: { entry: ChartEntry; smas: SMAConfig[]; height: number }) {
   const last = entry.bars[entry.bars.length - 1];
@@ -76,6 +131,7 @@ function ChartCard({ entry, smas, height }: { entry: ChartEntry; smas: SMAConfig
 
   return (
     <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden flex flex-col">
+      {/* Symbol / price row */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800/60 shrink-0">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-white text-sm">{entry.symbol}</span>
@@ -90,6 +146,11 @@ function ChartCard({ entry, smas, height }: { entry: ChartEntry; smas: SMAConfig
           )}
         </div>
       </div>
+
+      {/* SMA trend strip */}
+      <SmaTrendStrip bars={entry.bars} smas={smas} />
+
+      {/* Chart */}
       <div style={{ height }} className="relative">
         {entry.bars.length === 0 ? (
           <div className="h-full flex items-center justify-center text-slate-600 text-xs">No data</div>
