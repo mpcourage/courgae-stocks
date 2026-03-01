@@ -43,6 +43,31 @@ async function safeJson(res: Response) {
   try { return JSON.parse(text); } catch { throw new Error(text.slice(0, 120)); }
 }
 
+function smaSlice(bars: OHLCBar[], period: number, windowSize: number): number[] {
+  if (bars.length < period) return [];
+  const out: number[] = [];
+  const start = Math.max(period - 1, bars.length - windowSize);
+  for (let i = start; i < bars.length; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += bars[j].close;
+    out.push(sum / period);
+  }
+  return out;
+}
+
+function detectTrend(bars: OHLCBar[], period: number): "up" | "sideways" | "down" {
+  const window = Math.min(10, Math.max(4, Math.ceil(period / 3)));
+  const vals = smaSlice(bars, period, window);
+  if (vals.length < 4) return "sideways";
+  const mid = Math.floor(vals.length / 2);
+  const avgFirst  = vals.slice(0, mid).reduce((s, v) => s + v, 0) / mid;
+  const avgSecond = vals.slice(mid).reduce((s, v) => s + v, 0) / (vals.length - mid);
+  const pct = (avgSecond - avgFirst) / avgFirst * 100;
+  if (pct >  0.25) return "up";
+  if (pct < -0.25) return "down";
+  return "sideways";
+}
+
 export default function ChartsPage() {
   const [symbol, setSymbol] = useState("AAPL");
   const [timeframe, setTimeframe] = useState("1d");
@@ -209,26 +234,36 @@ export default function ChartsPage() {
               Moving Averages
             </p>
 
-            {smas.map((sma, i) => (
-              <div key={`${sma.period}-${sma.color}`} className="flex items-center gap-2">
-                <button
-                  onClick={() => toggleSMA(i)}
-                  className={`flex items-center gap-2 flex-1 text-left rounded-md px-2 py-1.5 transition-colors text-sm ${
-                    sma.visible ? "bg-slate-800" : "bg-transparent opacity-40"
-                  }`}
-                >
-                  <span className="w-3 h-3 rounded-full shrink-0" style={{ background: sma.color }} />
-                  <span className="text-slate-200">SMA {sma.period}</span>
-                </button>
-                <button
-                  onClick={() => removeSMA(i)}
-                  className="text-slate-600 hover:text-red-400 transition-colors text-xs px-1"
-                  title="Remove"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
+            {smas.map((sma, i) => {
+              const trend = typeof sma.period === "number" && bars.length > 0
+                ? detectTrend(bars, sma.period)
+                : "sideways";
+              const arrow = trend === "up" ? "↑" : trend === "down" ? "↓" : "→";
+              const arrowColor = trend === "up" ? "#4ade80" : trend === "down" ? "#f87171" : "#64748b";
+              return (
+                <div key={`${sma.period}-${sma.color}`} className="flex items-center gap-2">
+                  <button
+                    onClick={() => toggleSMA(i)}
+                    className={`flex items-center gap-2 flex-1 text-left rounded-md px-2 py-1.5 transition-colors text-sm ${
+                      sma.visible ? "bg-slate-800" : "bg-transparent opacity-40"
+                    }`}
+                  >
+                    <span className="w-3 h-3 rounded-full shrink-0" style={{ background: sma.color }} />
+                    <span className="text-slate-200 flex-1">SMA {sma.period}</span>
+                    {sma.visible && (
+                      <span className="font-bold text-sm" style={{ color: arrowColor }}>{arrow}</span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => removeSMA(i)}
+                    className="text-slate-600 hover:text-red-400 transition-colors text-xs px-1"
+                    title="Remove"
+                  >
+                    ✕
+                  </button>
+                </div>
+              );
+            })}
 
             {/* Add custom SMA */}
             <div className="border-t border-slate-800 pt-3 space-y-2">
