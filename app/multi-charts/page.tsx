@@ -251,8 +251,9 @@ export default function MultiChartsPage() {
   const [timeframe, setTimeframe] = useState("1d");
   const [lookbackDays, setLookbackDays] = useState(90);
   const [sector, setSector] = useState("All");
-  // Per-SMA trend filter: period → selected trend (null = no filter for that SMA)
-  const [smaFilters, setSmaFilters] = useState<Record<number, Trend | null>>({});
+  // Per-SMA trend filter: period → Set of selected trends (empty Set = no filter for that SMA)
+  // Within one SMA: OR logic. Across SMAs: AND logic.
+  const [smaFilters, setSmaFilters] = useState<Record<number, Set<Trend>>>({});
   const [cols, setCols] = useState(3);
   const [chartHeight, setChartHeight] = useState(200);
   const [smas, setSmas] = useState<SMAConfig[]>(DEFAULT_SMAS);
@@ -445,33 +446,37 @@ export default function MultiChartsPage() {
             { trend: "down",     icon: "↓", activeColor: "#f87171" },
           ];
 
-          const hasAnyFilter = Object.values(smaFilters).some((v) => v !== null && v !== undefined);
+          const hasAnyFilter = Object.values(smaFilters).some((s) => s.size > 0);
+
+          const toggleTrend = (period: number, trend: Trend) => {
+            setSmaFilters((prev) => {
+              const cur = new Set(prev[period] ?? []);
+              cur.has(trend) ? cur.delete(trend) : cur.add(trend);
+              return { ...prev, [period]: cur };
+            });
+          };
 
           return (
             <div className="border-t border-slate-800 pt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
               <span className="text-xs text-slate-500 font-semibold uppercase tracking-wider shrink-0">Filter:</span>
               {visibleSmas.map((sma) => {
                 const period = sma.period as number;
-                // Count stocks per trend for this SMA
+                const selected = smaFilters[period] ?? new Set<Trend>();
                 const counts: Record<Trend, number> = { up: 0, sideways: 0, down: 0 };
                 for (const entry of charts) {
                   if (entry.bars.length > 0) counts[detectTrend(entry.bars, period)]++;
                 }
-                const active = smaFilters[period] ?? null;
                 return (
                   <div key={period} className="flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full shrink-0" style={{ background: sma.color }} />
                     <span className="text-xs font-mono" style={{ color: sma.color }}>{period}</span>
                     <div className="flex rounded-md overflow-hidden border border-slate-700 ml-0.5">
                       {TREND_OPTS.map(({ trend, icon, activeColor }) => {
-                        const isActive = active === trend;
+                        const isActive = selected.has(trend);
                         return (
                           <button
                             key={trend}
-                            onClick={() => setSmaFilters((prev) => ({
-                              ...prev,
-                              [period]: prev[period] === trend ? null : trend,
-                            }))}
+                            onClick={() => toggleTrend(period, trend)}
                             title={`${counts[trend]} stocks`}
                             className={`px-2 py-0.5 text-sm font-bold transition-colors ${
                               isActive ? "bg-slate-700" : "bg-slate-900 hover:bg-slate-800"
@@ -519,12 +524,18 @@ export default function MultiChartsPage() {
 
       {/* Chart grid */}
       {charts.length > 0 && (() => {
-        const activeFilters = Object.entries(smaFilters).filter(([, v]) => v != null) as [string, Trend][];
+        // Active filters: only SMAs where at least one trend is selected
+        const activeFilters = Object.entries(smaFilters)
+          .filter(([, s]) => s.size > 0)
+          .map(([p, s]) => ({ period: parseInt(p), trends: s }));
         const visible = activeFilters.length === 0
           ? charts
           : charts.filter((e) =>
-              activeFilters.every(([period, trend]) =>
-                e.bars.length === 0 ? false : detectTrend(e.bars, parseInt(period)) === trend
+              e.bars.length > 0 &&
+              // AND across SMAs: stock must satisfy every active SMA filter
+              activeFilters.every(({ period, trends }) =>
+                // OR within one SMA: stock's trend must be in the selected set
+                trends.has(detectTrend(e.bars, period))
               )
             );
         return (
