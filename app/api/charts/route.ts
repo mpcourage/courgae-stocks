@@ -6,25 +6,28 @@ const yahooFinance = new YahooFinance();
 
 // Maps UI timeframe value → Yahoo Finance interval + lookback days
 const TIMEFRAME_MAP: Record<string, { interval: string; days: number }> = {
-  "1m":  { interval: "1m",  days: 2   },
-  "5m":  { interval: "5m",  days: 5   },
-  "15m": { interval: "15m", days: 14  },
-  "30m": { interval: "30m", days: 20  },
-  "1h":  { interval: "1h",  days: 30  },
-  "1d":  { interval: "1d",  days: 90  },
-  "1wk": { interval: "1wk", days: 730 },
+  "1m":  { interval: "1m",  days: 2    },
+  "5m":  { interval: "5m",  days: 5    },
+  "15m": { interval: "15m", days: 14   },
+  "30m": { interval: "30m", days: 20   },
+  "1h":  { interval: "1h",  days: 30   },
+  "1d":  { interval: "1d",  days: 90   },
+  "1wk": { interval: "1wk", days: 730  },
+  "1mo": { interval: "1mo", days: 1826 },
 };
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const symbol = (searchParams.get("symbol") ?? "").toUpperCase();
   const timeframe = searchParams.get("timeframe") ?? "1d";
+  const daysParam = searchParams.get("days");
 
   if (!symbol || !BLUE_CHIP_SYMBOLS.includes(symbol)) {
     return NextResponse.json({ error: "Valid blue chip symbol required" }, { status: 400 });
   }
 
-  const { interval, days } = TIMEFRAME_MAP[timeframe] ?? TIMEFRAME_MAP["1d"];
+  const { interval, days: defaultDays } = TIMEFRAME_MAP[timeframe] ?? TIMEFRAME_MAP["1d"];
+  const days = daysParam ? Math.max(1, Math.min(1826, parseInt(daysParam) || defaultDays)) : defaultDays;
 
   try {
     const end = new Date();

@@ -5,13 +5,14 @@ import { BLUE_CHIPS, BLUE_CHIP_SYMBOLS } from "@/lib/bluechips";
 const yahooFinance = new YahooFinance();
 
 const TIMEFRAME_MAP: Record<string, { interval: string; days: number }> = {
-  "1m":  { interval: "1m",  days: 2   },
-  "5m":  { interval: "5m",  days: 5   },
-  "15m": { interval: "15m", days: 14  },
-  "30m": { interval: "30m", days: 20  },
-  "1h":  { interval: "1h",  days: 30  },
-  "1d":  { interval: "1d",  days: 90  },
-  "1wk": { interval: "1wk", days: 730 },
+  "1m":  { interval: "1m",  days: 2    },
+  "5m":  { interval: "5m",  days: 5    },
+  "15m": { interval: "15m", days: 14   },
+  "30m": { interval: "30m", days: 20   },
+  "1h":  { interval: "1h",  days: 30   },
+  "1d":  { interval: "1d",  days: 90   },
+  "1wk": { interval: "1wk", days: 730  },
+  "1mo": { interval: "1mo", days: 1826 },
 };
 
 export async function GET(req: NextRequest) {
@@ -27,7 +28,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "No valid symbols provided" }, { status: 400 });
   }
 
-  const { interval, days } = TIMEFRAME_MAP[timeframe] ?? TIMEFRAME_MAP["1d"];
+  const daysParam = searchParams.get("days");
+  const { interval, days: defaultDays } = TIMEFRAME_MAP[timeframe] ?? TIMEFRAME_MAP["1d"];
+  const days = daysParam ? Math.max(1, Math.min(1826, parseInt(daysParam) || defaultDays)) : defaultDays;
   const end = new Date();
   const start = new Date();
   start.setDate(start.getDate() - days);

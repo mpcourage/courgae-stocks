@@ -19,13 +19,27 @@ interface ChartEntry {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const TIMEFRAMES = [
-  { label: "1m",  value: "1m"  },
-  { label: "5m",  value: "5m"  },
-  { label: "15m", value: "15m" },
-  { label: "30m", value: "30m" },
-  { label: "1H",  value: "1h"  },
-  { label: "1D",  value: "1d"  },
-  { label: "1W",  value: "1wk" },
+  { label: "1m",  value: "1m",  defaultDays: 2,    maxDays: 7    },
+  { label: "5m",  value: "5m",  defaultDays: 5,    maxDays: 60   },
+  { label: "15m", value: "15m", defaultDays: 14,   maxDays: 60   },
+  { label: "30m", value: "30m", defaultDays: 20,   maxDays: 60   },
+  { label: "1H",  value: "1h",  defaultDays: 30,   maxDays: 730  },
+  { label: "1D",  value: "1d",  defaultDays: 90,   maxDays: 1826 },
+  { label: "1W",  value: "1wk", defaultDays: 730,  maxDays: 1826 },
+  { label: "1Mo", value: "1mo", defaultDays: 1826, maxDays: 1826 },
+];
+
+const LOOKBACKS = [
+  { label: "1D",  days: 1    },
+  { label: "2D",  days: 2    },
+  { label: "5D",  days: 5    },
+  { label: "2W",  days: 14   },
+  { label: "1M",  days: 30   },
+  { label: "3M",  days: 90   },
+  { label: "6M",  days: 180  },
+  { label: "1Y",  days: 365  },
+  { label: "2Y",  days: 730  },
+  { label: "5Y",  days: 1826 },
 ];
 
 const SECTORS = ["All", ...Array.from(new Set(BLUE_CHIPS.map((c) => c.sector)))];
@@ -171,13 +185,14 @@ export default function MultiChartsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState("1d");
+  const [lookbackDays, setLookbackDays] = useState(90);
   const [sector, setSector] = useState("All");
   const [cols, setCols] = useState(3);
   const [chartHeight, setChartHeight] = useState(200);
   const [smas, setSmas] = useState<SMAConfig[]>(DEFAULT_SMAS);
   const abortRef = useRef<AbortController | null>(null);
 
-  const fetchCharts = useCallback(async (tf: string, sec: string) => {
+  const fetchCharts = useCallback(async (tf: string, sec: string, days: number) => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -190,7 +205,7 @@ export default function MultiChartsPage() {
         ? undefined
         : BLUE_CHIPS.filter((c) => c.sector === sec).map((c) => c.symbol).join(",");
 
-    const url = `/api/charts/batch?timeframe=${tf}${symbols ? `&symbols=${symbols}` : ""}`;
+    const url = `/api/charts/batch?timeframe=${tf}&days=${days}${symbols ? `&symbols=${symbols}` : ""}`;
 
     try {
       const res = await fetch(url, { signal: controller.signal });
@@ -213,7 +228,13 @@ export default function MultiChartsPage() {
     }
   }, []);
 
-  useEffect(() => { fetchCharts(timeframe, sector); }, [timeframe, sector, fetchCharts]);
+  const handleTimeframeChange = (tf: string) => {
+    const def = TIMEFRAMES.find((t) => t.value === tf)?.defaultDays ?? 90;
+    setTimeframe(tf);
+    setLookbackDays(def);
+  };
+
+  useEffect(() => { fetchCharts(timeframe, sector, lookbackDays); }, [timeframe, sector, lookbackDays, fetchCharts]);
 
   const colClass: Record<number, string> = {
     2: "grid-cols-1 sm:grid-cols-2",
@@ -241,7 +262,7 @@ export default function MultiChartsPage() {
             {TIMEFRAMES.map((tf) => (
               <button
                 key={tf.value}
-                onClick={() => setTimeframe(tf.value)}
+                onClick={() => handleTimeframeChange(tf.value)}
                 className={`px-3 py-1.5 text-xs font-medium transition-colors ${
                   timeframe === tf.value
                     ? "bg-sky-500 text-white"
@@ -252,6 +273,29 @@ export default function MultiChartsPage() {
               </button>
             ))}
           </div>
+
+          {/* Lookback */}
+          {(() => {
+            const maxDays = TIMEFRAMES.find((t) => t.value === timeframe)?.maxDays ?? 1826;
+            const visible = LOOKBACKS.filter((l) => l.days <= maxDays);
+            return (
+              <div className="flex rounded-lg overflow-hidden border border-slate-700">
+                {visible.map((l) => (
+                  <button
+                    key={l.days}
+                    onClick={() => setLookbackDays(l.days)}
+                    className={`px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      lookbackDays === l.days
+                        ? "bg-slate-600 text-white"
+                        : "bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800"
+                    }`}
+                  >
+                    {l.label}
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
 
           {/* Sector */}
           <select
@@ -297,7 +341,7 @@ export default function MultiChartsPage() {
             {loading && <span className="animate-spin">↻</span>}
             <span>{charts.length} charts</span>
             <button
-              onClick={() => fetchCharts(timeframe, sector)}
+              onClick={() => fetchCharts(timeframe, sector, lookbackDays)}
               disabled={loading}
               className="px-3 py-1.5 rounded-lg bg-sky-700 hover:bg-sky-600 disabled:opacity-40 text-white text-xs font-medium transition-colors"
             >

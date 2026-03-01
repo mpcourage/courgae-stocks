@@ -8,13 +8,27 @@ import type { OHLCBar, SMAConfig } from "@/components/CandlestickChart";
 const CandlestickChart = dynamic(() => import("@/components/CandlestickChart"), { ssr: false });
 
 const TIMEFRAMES = [
-  { label: "1m",  value: "1m"  },
-  { label: "5m",  value: "5m"  },
-  { label: "15m", value: "15m" },
-  { label: "30m", value: "30m" },
-  { label: "1H",  value: "1h"  },
-  { label: "1D",  value: "1d"  },
-  { label: "1W",  value: "1wk" },
+  { label: "1m",  value: "1m",  defaultDays: 2,   maxDays: 7    },
+  { label: "5m",  value: "5m",  defaultDays: 5,   maxDays: 60   },
+  { label: "15m", value: "15m", defaultDays: 14,  maxDays: 60   },
+  { label: "30m", value: "30m", defaultDays: 20,  maxDays: 60   },
+  { label: "1H",  value: "1h",  defaultDays: 30,  maxDays: 730  },
+  { label: "1D",  value: "1d",  defaultDays: 90,   maxDays: 1826 },
+  { label: "1W",  value: "1wk", defaultDays: 730,  maxDays: 1826 },
+  { label: "1Mo", value: "1mo", defaultDays: 1826, maxDays: 1826 },
+];
+
+const LOOKBACKS = [
+  { label: "1D",  days: 1    },
+  { label: "2D",  days: 2    },
+  { label: "5D",  days: 5    },
+  { label: "2W",  days: 14   },
+  { label: "1M",  days: 30   },
+  { label: "3M",  days: 90   },
+  { label: "6M",  days: 180  },
+  { label: "1Y",  days: 365  },
+  { label: "2Y",  days: 730  },
+  { label: "5Y",  days: 1826 },
 ];
 
 const SMA_PRESETS: SMAConfig[] = [
@@ -32,6 +46,7 @@ async function safeJson(res: Response) {
 export default function ChartsPage() {
   const [symbol, setSymbol] = useState("AAPL");
   const [timeframe, setTimeframe] = useState("1d");
+  const [lookbackDays, setLookbackDays] = useState(90);
   const [bars, setBars] = useState<OHLCBar[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,11 +54,11 @@ export default function ChartsPage() {
   const [customPeriod, setCustomPeriod] = useState("");
   const [customColor, setCustomColor] = useState("#ff6b6b");
 
-  const fetchChart = useCallback(async (sym: string, tf: string) => {
+  const fetchChart = useCallback(async (sym: string, tf: string, days: number) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/charts?symbol=${sym}&timeframe=${tf}`);
+      const res = await fetch(`/api/charts?symbol=${sym}&timeframe=${tf}&days=${days}`);
       const data = await safeJson(res);
       if (data.error) throw new Error(data.error);
       setBars(data.bars ?? []);
@@ -54,7 +69,14 @@ export default function ChartsPage() {
     }
   }, []);
 
-  useEffect(() => { fetchChart(symbol, timeframe); }, [symbol, timeframe, fetchChart]);
+  // When timeframe changes, reset lookback to its default
+  const handleTimeframeChange = (tf: string) => {
+    const def = TIMEFRAMES.find((t) => t.value === tf)?.defaultDays ?? 90;
+    setTimeframe(tf);
+    setLookbackDays(def);
+  };
+
+  useEffect(() => { fetchChart(symbol, timeframe, lookbackDays); }, [symbol, timeframe, lookbackDays, fetchChart]);
 
   const toggleSMA = (i: number) =>
     setSmas((prev) => prev.map((s, idx) => idx === i ? { ...s, visible: !s.visible } : s));
@@ -104,7 +126,7 @@ export default function ChartsPage() {
           {TIMEFRAMES.map((tf) => (
             <button
               key={tf.value}
-              onClick={() => setTimeframe(tf.value)}
+              onClick={() => handleTimeframeChange(tf.value)}
               className={`px-3 py-1.5 text-sm font-medium transition-colors ${
                 timeframe === tf.value
                   ? "bg-sky-500 text-white"
@@ -115,6 +137,29 @@ export default function ChartsPage() {
             </button>
           ))}
         </div>
+
+        {/* Lookback selector */}
+        {(() => {
+          const maxDays = TIMEFRAMES.find((t) => t.value === timeframe)?.maxDays ?? 1826;
+          const visible = LOOKBACKS.filter((l) => l.days <= maxDays);
+          return (
+            <div className="flex rounded-lg overflow-hidden border border-slate-700">
+              {visible.map((l) => (
+                <button
+                  key={l.days}
+                  onClick={() => setLookbackDays(l.days)}
+                  className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                    lookbackDays === l.days
+                      ? "bg-slate-600 text-white"
+                      : "bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800"
+                  }`}
+                >
+                  {l.label}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
 
         {/* Stats */}
         {lastBar && (
