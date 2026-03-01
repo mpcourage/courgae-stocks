@@ -5,22 +5,22 @@ import dynamic from "next/dynamic";
 import { BLUE_CHIPS } from "@/lib/bluechips";
 import type { OHLCBar, SMAConfig } from "@/components/CandlestickChart";
 
-// Dynamically import to avoid SSR issues (lightweight-charts is canvas-based)
 const CandlestickChart = dynamic(() => import("@/components/CandlestickChart"), { ssr: false });
 
-const PERIODS = [
-  { label: "1M", value: "1m" },
-  { label: "3M", value: "3m" },
-  { label: "6M", value: "6m" },
-  { label: "1Y", value: "1y" },
-  { label: "2Y", value: "2y" },
-  { label: "5Y", value: "5y" },
+const TIMEFRAMES = [
+  { label: "1m",  value: "1m"  },
+  { label: "5m",  value: "5m"  },
+  { label: "15m", value: "15m" },
+  { label: "30m", value: "30m" },
+  { label: "1H",  value: "1h"  },
+  { label: "1D",  value: "1d"  },
+  { label: "1W",  value: "1wk" },
 ];
 
 const SMA_PRESETS: SMAConfig[] = [
-  { period: 5,       color: "#4ade80", visible: true },
-  { period: 44,      color: "#f59e0b", visible: true },
-  { period: "close", color: "#94a3b8", visible: true },
+  { period: 22, color: "#38bdf8", visible: true }, // light blue
+  { period: 33, color: "#ef4444", visible: true }, // red
+  { period: 44, color: "#1d4ed8", visible: true }, // dark blue
 ];
 
 async function safeJson(res: Response) {
@@ -31,7 +31,7 @@ async function safeJson(res: Response) {
 
 export default function ChartsPage() {
   const [symbol, setSymbol] = useState("AAPL");
-  const [period, setPeriod] = useState("3m");
+  const [timeframe, setTimeframe] = useState("1d");
   const [bars, setBars] = useState<OHLCBar[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,11 +39,11 @@ export default function ChartsPage() {
   const [customPeriod, setCustomPeriod] = useState("");
   const [customColor, setCustomColor] = useState("#ff6b6b");
 
-  const fetchChart = useCallback(async (sym: string, per: string) => {
+  const fetchChart = useCallback(async (sym: string, tf: string) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/charts?symbol=${sym}&period=${per}`);
+      const res = await fetch(`/api/charts?symbol=${sym}&timeframe=${tf}`);
       const data = await safeJson(res);
       if (data.error) throw new Error(data.error);
       setBars(data.bars ?? []);
@@ -54,11 +54,10 @@ export default function ChartsPage() {
     }
   }, []);
 
-  useEffect(() => { fetchChart(symbol, period); }, [symbol, period, fetchChart]);
+  useEffect(() => { fetchChart(symbol, timeframe); }, [symbol, timeframe, fetchChart]);
 
-  const toggleSMA = (i: number) => {
+  const toggleSMA = (i: number) =>
     setSmas((prev) => prev.map((s, idx) => idx === i ? { ...s, visible: !s.visible } : s));
-  };
 
   const addCustomSMA = () => {
     const p = parseInt(customPeriod);
@@ -68,9 +67,8 @@ export default function ChartsPage() {
     setCustomPeriod("");
   };
 
-  const removeSMA = (i: number) => {
+  const removeSMA = (i: number) =>
     setSmas((prev) => prev.filter((_, idx) => idx !== i));
-  };
 
   const selectedChip = BLUE_CHIPS.find((c) => c.symbol === symbol);
   const lastBar = bars[bars.length - 1];
@@ -79,7 +77,6 @@ export default function ChartsPage() {
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-4">
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-white">Price Charts</h1>
         <p className="text-sm text-slate-400 mt-0.5">
@@ -102,19 +99,19 @@ export default function ChartsPage() {
           ))}
         </select>
 
-        {/* Period selector */}
+        {/* Timeframe selector */}
         <div className="flex rounded-lg overflow-hidden border border-slate-700">
-          {PERIODS.map((p) => (
+          {TIMEFRAMES.map((tf) => (
             <button
-              key={p.value}
-              onClick={() => setPeriod(p.value)}
+              key={tf.value}
+              onClick={() => setTimeframe(tf.value)}
               className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                period === p.value
+                timeframe === tf.value
                   ? "bg-sky-500 text-white"
                   : "bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800"
               }`}
             >
-              {p.label}
+              {tf.label}
             </button>
           ))}
         </div>
@@ -175,13 +172,8 @@ export default function ChartsPage() {
                     sma.visible ? "bg-slate-800" : "bg-transparent opacity-40"
                   }`}
                 >
-                  <span
-                    className="w-3 h-3 rounded-full shrink-0"
-                    style={{ background: sma.color }}
-                  />
-                  <span className="text-slate-200">
-                    {sma.period === "close" ? "Close Price" : `SMA ${sma.period}`}
-                  </span>
+                  <span className="w-3 h-3 rounded-full shrink-0" style={{ background: sma.color }} />
+                  <span className="text-slate-200">SMA {sma.period}</span>
                 </button>
                 <button
                   onClick={() => removeSMA(i)}
@@ -233,7 +225,7 @@ export default function ChartsPage() {
               <p className="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-300 inline-block">
                 {selectedChip.sector}
               </p>
-              <p className="text-slate-500 pt-1">{bars.length} trading days</p>
+              <p className="text-slate-500 pt-1">{bars.length} bars</p>
             </div>
           )}
         </div>

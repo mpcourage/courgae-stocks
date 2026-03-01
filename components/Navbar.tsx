@@ -6,7 +6,8 @@ import { usePathname } from "next/navigation";
 const links = [
   { href: "/", label: "Home" },
   { href: "/bluechips", label: "Blue Chips" },
-  { href: "/charts", label: "Charts" },
+  { href: "/charts", label: "Chart" },
+  { href: "/multi-charts", label: "Multi Chart" },
   { href: "/rising", label: "Rising" },
   { href: "/strategies", label: "Strategies" },
 ];

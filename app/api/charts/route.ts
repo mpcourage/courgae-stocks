@@ -4,25 +4,27 @@ import { BLUE_CHIP_SYMBOLS } from "@/lib/bluechips";
 
 const yahooFinance = new YahooFinance();
 
-const PERIOD_MAP: Record<string, number> = {
-  "1m":  30,
-  "3m":  90,
-  "6m":  180,
-  "1y":  365,
-  "2y":  730,
-  "5y":  1826,
+// Maps UI timeframe value → Yahoo Finance interval + lookback days
+const TIMEFRAME_MAP: Record<string, { interval: string; days: number }> = {
+  "1m":  { interval: "1m",  days: 2   },
+  "5m":  { interval: "5m",  days: 5   },
+  "15m": { interval: "15m", days: 14  },
+  "30m": { interval: "30m", days: 20  },
+  "1h":  { interval: "1h",  days: 30  },
+  "1d":  { interval: "1d",  days: 90  },
+  "1wk": { interval: "1wk", days: 730 },
 };
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const symbol = (searchParams.get("symbol") ?? "").toUpperCase();
-  const period = searchParams.get("period") ?? "3m";
+  const timeframe = searchParams.get("timeframe") ?? "1d";
 
   if (!symbol || !BLUE_CHIP_SYMBOLS.includes(symbol)) {
     return NextResponse.json({ error: "Valid blue chip symbol required" }, { status: 400 });
   }
 
-  const days = PERIOD_MAP[period] ?? 90;
+  const { interval, days } = TIMEFRAME_MAP[timeframe] ?? TIMEFRAME_MAP["1d"];
 
   try {
     const end = new Date();
@@ -32,7 +34,7 @@ export async function GET(req: NextRequest) {
     const result = await yahooFinance.chart(symbol, {
       period1: start,
       period2: end,
-      interval: "1d",
+      interval: interval as never,
     });
 
     const bars = (result.quotes ?? [])
@@ -46,7 +48,7 @@ export async function GET(req: NextRequest) {
         volume: q.volume ?? 0,
       }));
 
-    return NextResponse.json({ symbol, period, bars });
+    return NextResponse.json({ symbol, timeframe, bars });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
