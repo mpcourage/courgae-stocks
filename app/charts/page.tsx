@@ -9,6 +9,7 @@ const CandlestickChart = dynamic(() => import("@/components/CandlestickChart"), 
 
 const TIMEFRAMES = [
   { label: "1m",  value: "1m",  defaultDays: 2,   maxDays: 7    },
+  { label: "3m",  value: "3m",  defaultDays: 3,   maxDays: 7    }, // synthetic from 1m
   { label: "5m",  value: "5m",  defaultDays: 5,   maxDays: 60   },
   { label: "15m", value: "15m", defaultDays: 14,  maxDays: 60   },
   { label: "30m", value: "30m", defaultDays: 20,  maxDays: 60   },
