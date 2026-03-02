@@ -107,12 +107,19 @@ export async function GET() {
     const price = closes[closes.length - 1];
     const prevClose = closes[0];
 
-    const vwap = computeVWAP(quotes.map((q) => ({
+    // VWAP must reset each session — filter to today's bars only
+    const todayStr = now.toISOString().slice(0, 10);
+    const todayQuotes = quotes.filter((q) => {
+      const d = q.date instanceof Date ? q.date : new Date(q.date);
+      return d.toISOString().slice(0, 10) === todayStr;
+    });
+    const vwapBars = (todayQuotes.length > 0 ? todayQuotes : quotes).map((q) => ({
       high: q.high ?? price,
       low: q.low ?? price,
       close: q.close ?? price,
       volume: q.volume ?? 0,
-    })));
+    }));
+    const vwap = computeVWAP(vwapBars);
 
     const rsi = computeRSI(closes, 14);
     const rvol = computeRVOL(volumes);
