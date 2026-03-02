@@ -9,6 +9,7 @@ const links = [
   { href: "/charts", label: "Chart" },
   { href: "/multi-charts", label: "Multi Chart" },
   { href: "/rising", label: "Rising" },
+  { href: "/technicals", label: "Technicals" },
   { href: "/strategies", label: "Strategies" },
 ];
 
