@@ -1,6 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import RefreshRing from "@/components/RefreshRing";
+import { getMarketSession } from "@/lib/marketSession";
+import AddToTradeButton from "@/components/AddToTradeButton";
 import type { ScalpingCandidate } from "@/app/api/strategies/scalping/route";
 
 async function safeJson(res: Response) {
@@ -46,7 +49,12 @@ function RvolBadge({ rvol }: { rvol: number }) {
   const high = rvol >= 1.5;
   return (
     <span className={`font-mono text-xs ${high ? "text-amber-400 font-semibold" : "text-slate-400"}`}>
-      {rvol.toFixed(2)}×{high && " 🔥"}
+      {rvol.toFixed(2)}×
+      {high && (
+        <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase">
+          hot
+        </span>
+      )}
     </span>
   );
 }
@@ -57,6 +65,7 @@ export default function ScalpingTab() {
   const [error, setError] = useState<string | null>(null);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [marketOpen, setMarketOpen] = useState<boolean | null>(null);
+  const [countdown, setCountdown] = useState(30);
 
   // Filters
   const [minRvol, setMinRvol] = useState(0);
@@ -82,9 +91,15 @@ export default function ScalpingTab() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Auto-refresh every 30s during market hours
   useEffect(() => {
-    const t = setInterval(fetchData, 30_000);
+    setCountdown(30);
+    const t = setInterval(() => {
+      if (getMarketSession() === "closed") return;
+      setCountdown((c) => {
+        if (c <= 1) { fetchData(); return 30; }
+        return c - 1;
+      });
+    }, 1000);
     return () => clearInterval(t);
   }, [fetchData]);
 
@@ -141,9 +156,9 @@ export default function ScalpingTab() {
             { label: "Strong Sell", value: summary.strongSell, color: "text-red-400" },
             { label: "High RVOL", value: summary.highRvol, color: "text-amber-400" },
           ].map((s) => (
-            <div key={s.label} className="rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-center min-w-[72px]">
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider">{s.label}</p>
-              <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
+            <div key={s.label} className="rounded-xl bg-slate-900/80 border border-slate-800 px-4 py-2.5 text-center min-w-[80px]">
+              <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-0.5">{s.label}</p>
+              <p className={`text-xl font-bold tabular-nums ${s.color}`}>{s.value}</p>
             </div>
           ))}
         </div>
@@ -153,14 +168,7 @@ export default function ScalpingTab() {
               {new Date(fetchedAt).toLocaleTimeString()}
             </span>
           )}
-          <button
-            onClick={fetchData}
-            disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm text-slate-200 disabled:opacity-50 transition-colors"
-          >
-            <span className={loading ? "animate-spin" : ""}>↻</span>
-            Refresh
-          </button>
+          <RefreshRing countdown={countdown} total={30} loading={loading} onClick={() => { fetchData(); setCountdown(30); }} />
         </div>
       </div>
 
@@ -249,11 +257,16 @@ export default function ScalpingTab() {
                     <tr key={c.symbol} className="border-b border-slate-800/50 hover:bg-slate-800/40 transition-colors">
                       <td className="px-3 py-2.5 text-center text-slate-500 text-xs">{idx + 1}</td>
                       <td className="px-3 py-2.5">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${sig.bg} ${sig.text} ${sig.border}`}>
+                        <span className={`px-3 py-1 rounded-lg text-xs font-bold border ${sig.bg} ${sig.text} ${sig.border}`}>
                           {sig.label}
                         </span>
                       </td>
-                      <td className="px-3 py-2.5 font-bold text-white">{c.symbol}</td>
+                      <td className="px-3 py-2.5 font-bold text-white">
+                        <div className="flex items-center gap-1.5">
+                          {c.symbol}
+                          <AddToTradeButton symbol={c.symbol} />
+                        </div>
+                      </td>
                       <td className="px-3 py-2.5 text-slate-400 max-w-[150px] truncate">{c.name}</td>
                       <td className="px-3 py-2.5 text-right font-mono font-semibold text-white">
                         ${c.price.toFixed(2)}

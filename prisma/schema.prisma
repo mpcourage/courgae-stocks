@@ -22,6 +22,14 @@ model StockSnapshot {
   updatedAt DateTime @updatedAt
 }
 
+model Universe {
+  symbol    String   @id
+  name      String
+  sector    String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
 model HistoryBar {
   id        String   @id @default(cuid())
   symbol    String

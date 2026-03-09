@@ -134,7 +134,7 @@ export async function GET() {
     const ema9 = ema9Arr[ema9Arr.length - 1];
     const ema20 = ema20Arr[ema20Arr.length - 1];
 
-    const emaCross =
+    const emaCross: "bullish" | "bearish" | "neutral" =
       ema9 > ema20 * 1.001 ? "bullish" :
       ema9 < ema20 * 0.999 ? "bearish" : "neutral";
 

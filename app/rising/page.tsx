@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import RefreshRing from "@/components/RefreshRing";
+import { getMarketSession } from "@/lib/marketSession";
+import AddToTradeButton from "@/components/AddToTradeButton";
 
 interface RisingStock {
   symbol: string;
@@ -55,11 +59,11 @@ function ScoreBar({ score }: { score: number }) {
     score >= 45 ? "bg-yellow-500" :
     score >= 30 ? "bg-orange-500" : "bg-red-500";
   return (
-    <div className="flex items-center gap-2">
-      <div className="w-20 h-2 rounded-full bg-slate-800 overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${score}%` }} />
-      </div>
-      <span className="text-xs font-mono text-slate-300">{score}</span>
+    <div className="relative w-28 h-5 rounded-full bg-slate-800 overflow-hidden">
+      <div className={`h-full rounded-full ${color} transition-all duration-300`} style={{ width: `${score}%` }} />
+      <span className="absolute inset-0 flex items-center justify-center text-[11px] font-mono font-bold text-white" style={{ textShadow: "0 0 4px rgba(0,0,0,0.8)" }}>
+        {score}
+      </span>
     </div>
   );
 }
@@ -109,6 +113,7 @@ export default function RisingPage() {
   const [sector, setSector] = useState("All");
   const [minScore, setMinScore] = useState(0);
   const [onlyRising, setOnlyRising] = useState(false);
+  const [countdown, setCountdown] = useState(60);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -128,6 +133,18 @@ export default function RisingPage() {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  useEffect(() => {
+    setCountdown(60);
+    const t = setInterval(() => {
+      if (getMarketSession() === "closed") return;
+      setCountdown((c) => {
+        if (c <= 1) { fetchData(); return 60; }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, [fetchData]);
 
   const handleSort = (key: SortKey) => {
     if (key === sortKey) setSortDir((d) => d === "desc" ? "asc" : "desc");
@@ -157,13 +174,14 @@ export default function RisingPage() {
             Momentum ranking across 50 blue chips — scored by trend strength, RSI, and volume
           </p>
         </div>
-        <button
-          onClick={fetchData}
-          disabled={loading}
-          className="px-4 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-sm font-medium transition-colors"
-        >
-          {loading ? "Loading…" : "Refresh"}
-        </button>
+        <div className="flex items-center gap-3">
+          {generatedAt && (
+            <span className="text-[11px] text-slate-500 tabular-nums">
+              Updated {new Date(generatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true, timeZone: "America/New_York" })}
+            </span>
+          )}
+          <RefreshRing countdown={countdown} total={60} loading={loading} onClick={() => { fetchData(); setCountdown(60); }} />
+        </div>
       </div>
 
       {/* Summary chips */}
@@ -261,13 +279,23 @@ export default function RisingPage() {
             </thead>
             <tbody className="divide-y divide-slate-800/60">
               {filtered.map((stock, idx) => (
-                <tr key={stock.symbol} className="hover:bg-slate-800/30 transition-colors">
+                <tr key={stock.symbol} className={`hover:bg-slate-800/30 transition-all duration-150 hover:border-l-2 ${
+                  stock.score >= 75 ? "hover:border-l-emerald-400" :
+                  stock.score >= 60 ? "hover:border-l-green-500" :
+                  stock.score >= 45 ? "hover:border-l-yellow-500" :
+                  stock.score >= 30 ? "hover:border-l-orange-500" : "hover:border-l-red-500"
+                }`}>
                   {/* Rank */}
                   <td className="px-4 py-3 text-slate-600 text-xs">{idx + 1}</td>
 
                   {/* Symbol */}
                   <td className="px-4 py-3">
-                    <div className="font-semibold text-white">{stock.symbol}</div>
+                    <div className="flex items-center gap-1.5">
+                      <Link href={`/equity?symbol=${stock.symbol}`} className="font-bold text-sky-400 hover:text-sky-300 transition-colors">
+                        {stock.symbol}
+                      </Link>
+                      <AddToTradeButton symbol={stock.symbol} />
+                    </div>
                     <div className="text-xs text-slate-500 truncate max-w-[140px]">{stock.name}</div>
                     <div className="text-[10px] text-slate-600 mt-0.5">{stock.sector}</div>
                   </td>
@@ -286,7 +314,12 @@ export default function RisingPage() {
                   {/* RVOL */}
                   <td className="px-4 py-3 text-center">
                     <span className={`font-mono text-sm ${stock.rvol >= 1.5 ? "text-orange-400 font-semibold" : "text-slate-400"}`}>
-                      {stock.rvol >= 1.5 && "🔥 "}{stock.rvol.toFixed(2)}x
+                      {stock.rvol.toFixed(2)}x
+                      {stock.rvol >= 1.5 && (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30 uppercase">
+                          hot
+                        </span>
+                      )}
                     </span>
                   </td>
 
@@ -337,7 +370,7 @@ export default function RisingPage() {
         <span><span className="text-orange-500 font-semibold">Score 30–44</span> — Weak</span>
         <span><span className="text-red-500 font-semibold">Score &lt; 30</span> — Declining</span>
         <span className="ml-auto">RSI: <span className="text-green-400">50–68</span> = healthy uptrend · <span className="text-orange-400">&gt;70</span> = overbought</span>
-        <span>RVOL <span className="text-orange-400">🔥</span> ≥ 1.5× = volume spike</span>
+        <span>RVOL <span className="text-orange-400 font-semibold">HOT</span> ≥ 1.5× = volume spike</span>
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import YahooFinance from "yahoo-finance2";
-import { BLUE_CHIPS, BLUE_CHIP_SYMBOLS } from "@/lib/bluechips";
+import { getUniverse, getUniverseSymbols } from "@/lib/universe";
 
 const yahooFinance = new YahooFinance();
 
@@ -42,9 +42,10 @@ export async function GET(req: NextRequest) {
   const timeframe = searchParams.get("timeframe") ?? "1d";
   const symbolsParam = searchParams.get("symbols");
 
+  const universeSymbols = await getUniverseSymbols();
   const symbols = symbolsParam
-    ? symbolsParam.split(",").map((s) => s.trim().toUpperCase()).filter((s) => BLUE_CHIP_SYMBOLS.includes(s))
-    : BLUE_CHIP_SYMBOLS;
+    ? symbolsParam.split(",").map((s) => s.trim().toUpperCase()).filter((s) => universeSymbols.includes(s))
+    : universeSymbols;
 
   if (symbols.length === 0) {
     return NextResponse.json({ error: "No valid symbols provided" }, { status: 400 });
@@ -69,10 +70,12 @@ export async function GET(req: NextRequest) {
     );
 
     const data: Record<string, { bars: Bar[]; name: string; sector: string }> = {};
+    const universe = await getUniverse();
+    const chipMap = Object.fromEntries(universe.map((c) => [c.symbol, c]));
 
     settled.forEach((result, i) => {
       const symbol = symbols[i];
-      const chip = BLUE_CHIPS.find((c) => c.symbol === symbol);
+      const chip = chipMap[symbol];
       if (result.status === "rejected" || !result.value) {
         data[symbol] = { bars: [], name: chip?.name ?? symbol, sector: chip?.sector ?? "" };
         return;

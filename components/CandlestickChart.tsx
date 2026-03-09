@@ -48,15 +48,12 @@ export default function CandlestickChart({ bars, smas }: Props) {
   const chartRef = useRef<ReturnType<typeof createChart> | null>(null);
 
   // Allow page to scroll when wheel is used without Ctrl/Cmd.
-  // In capture phase we intercept wheel events before lightweight-charts sees them;
-  // if no modifier key is held we stop the chart from consuming the event and
-  // manually forward the scroll delta to the page instead.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const onWheel = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey) return; // Ctrl/Cmd+wheel → chart zoom, as normal
-      e.stopPropagation();                // prevent lightweight-charts from grabbing it
+      if (e.ctrlKey || e.metaKey) return;
+      e.stopPropagation();
       window.scrollBy({ top: e.deltaY, behavior: "auto" });
     };
     container.addEventListener("wheel", onWheel, { capture: true, passive: false });
@@ -78,7 +75,7 @@ export default function CandlestickChart({ bars, smas }: Props) {
         horzLines: { color: "#1e293b" },
       },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: "#334155", visible: false },
+      rightPriceScale: { borderColor: "#334155", visible: true },
       timeScale: {
         borderColor: "#334155",
         timeVisible: true,
@@ -97,6 +94,7 @@ export default function CandlestickChart({ bars, smas }: Props) {
       borderDownColor: "#f87171",
       wickUpColor:     "#4ade80",
       wickDownColor:   "#f87171",
+      lastValueVisible: false,
     });
     candleSeries.setData(bars as never);
 
@@ -125,19 +123,17 @@ export default function CandlestickChart({ bars, smas }: Props) {
         const line = chart.addSeries(LineSeries, {
           color: sma.color,
           lineWidth: 1,
-          lineStyle: 1, // dashed
+          lineStyle: 1,
           priceLineVisible: false,
-          lastValueVisible: true,
-          title: "Close",
+          lastValueVisible: false,
         });
         line.setData(computeCloseLine(bars) as never);
       } else {
         const line = chart.addSeries(LineSeries, {
           color: sma.color,
-          lineWidth: 1.5,
+          lineWidth: 2 as const,
           priceLineVisible: false,
-          lastValueVisible: true,
-          title: `SMA${sma.period}`,
+          lastValueVisible: false,
         });
         line.setData(computeSMA(bars, sma.period) as never);
       }
@@ -161,5 +157,44 @@ export default function CandlestickChart({ bars, smas }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bars, smas]);
 
-  return <div ref={containerRef} className="w-full h-full" />;
+  // Compute legend values from props (no chart API needed)
+  const lastBar = bars[bars.length - 1];
+  const isUp = lastBar ? lastBar.close >= lastBar.open : true;
+  const priceColor = isUp ? "#4ade80" : "#f87171";
+
+  const smaLabels = smas
+    .filter((s) => s.visible)
+    .map((s) => {
+      if (s.period === "close") {
+        return { label: "Close", value: lastBar?.close ?? null, color: s.color };
+      }
+      const data = computeSMA(bars, s.period);
+      return {
+        label: `SMA${s.period}`,
+        value: data.length > 0 ? data[data.length - 1].value : null,
+        color: s.color,
+      };
+    });
+
+  return (
+    <div className="relative w-full h-full">
+      <div ref={containerRef} className="w-full h-full" />
+
+      {/* Price legend — top-left, away from latest candles */}
+      {lastBar && (
+        <div className="absolute top-1 left-1 flex flex-col gap-0.5 pointer-events-none z-10">
+          <span className="text-xs font-mono font-semibold" style={{ color: priceColor }}>
+            {lastBar.close.toFixed(2)}
+          </span>
+          {smaLabels.map((s) =>
+            s.value !== null ? (
+              <span key={s.label} className="text-xs font-mono" style={{ color: s.color }}>
+                {s.label} {s.value.toFixed(2)}
+              </span>
+            ) : null
+          )}
+        </div>
+      )}
+    </div>
+  );
 }

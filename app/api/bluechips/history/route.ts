@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import YahooFinance from "yahoo-finance2";
-import { BLUE_CHIP_SYMBOLS } from "@/lib/bluechips";
+import { getUniverseSymbols } from "@/lib/universe";
 import { prisma } from "@/lib/prisma";
 import { isMarketOpen } from "@/lib/marketHours";
 
@@ -19,7 +19,8 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const symbol = (searchParams.get("symbol") ?? "").toUpperCase();
 
-  if (!symbol || !BLUE_CHIP_SYMBOLS.includes(symbol)) {
+  const universeSymbols = await getUniverseSymbols();
+  if (!symbol || !universeSymbols.includes(symbol)) {
     return NextResponse.json(
       { error: "Valid blue chip symbol required" },
       { status: 400 }

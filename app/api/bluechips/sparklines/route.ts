@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import YahooFinance from "yahoo-finance2";
-import { BLUE_CHIP_SYMBOLS } from "@/lib/bluechips";
+import { getUniverseSymbols } from "@/lib/universe";
 import { prisma } from "@/lib/prisma";
 const yahooFinance = new YahooFinance();
 
@@ -29,7 +29,8 @@ export async function GET() {
       dbBySymbol[row.symbol].push(row.close);
     }
 
-    const missing = BLUE_CHIP_SYMBOLS.filter(
+    const universeSymbols = await getUniverseSymbols();
+    const missing = universeSymbols.filter(
       (s) => !dbBySymbol[s] || dbBySymbol[s].length < 5
     );
 
