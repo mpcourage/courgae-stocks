@@ -1,6 +1,7 @@
-const KEY      = "trade-symbols";
-const META_KEY = "trade-metadata";   // Record<symbol, string[]>  — screener names per symbol
-const DATE_KEY = "trade-screener-date"; // "YYYY-MM-DD" in ET for dedup
+const KEY           = "trade-symbols";
+const META_KEY      = "trade-metadata";       // Record<symbol, string[]>  — screener names per symbol
+const DATE_KEY      = "trade-screener-date";  // "YYYY-MM-DD" in ET for dedup
+const USER_SEL_KEY  = "trade-user-selected";  // string[] — manually pinned symbols
 
 // ── Symbol list ───────────────────────────────────────────────────────────────
 
@@ -43,6 +44,26 @@ export function getScreenerRunDate(): string | null {
 
 export function setScreenerRunDate(date: string) {
   localStorage.setItem(DATE_KEY, date);
+}
+
+// ── User-selected symbols (persist until market close) ────────────────────────
+
+export function getUserSelected(): string[] {
+  if (typeof window === "undefined") return [];
+  try { return JSON.parse(localStorage.getItem(USER_SEL_KEY) ?? "[]"); } catch { return []; }
+}
+
+export function addUserSelected(symbol: string) {
+  const list = getUserSelected();
+  if (!list.includes(symbol)) localStorage.setItem(USER_SEL_KEY, JSON.stringify([...list, symbol]));
+}
+
+export function removeUserSelected(symbol: string) {
+  localStorage.setItem(USER_SEL_KEY, JSON.stringify(getUserSelected().filter(s => s !== symbol)));
+}
+
+export function clearUserSelected() {
+  localStorage.setItem(USER_SEL_KEY, JSON.stringify([]));
 }
 
 // ── Bulk operations ───────────────────────────────────────────────────────────

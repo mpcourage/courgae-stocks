@@ -6,25 +6,27 @@ import {
   getTradeSymbols, setTradeSymbols,
   getTradeMetadata, setTradeMetadata,
   getScreenerRunDate, setScreenerRunDate,
+  getUserSelected, addUserSelected, removeUserSelected, clearUserSelected,
 } from "@/lib/tradeList";
 import { getSavedScreeners, passesScreener } from "@/lib/screenerLogic";
 import { getMarketSession, type MarketSession } from "@/lib/marketSession";
 import { computeATRPct } from "@/lib/indicators";
 
 // ── Trading phase detection ────────────────────────────────────────────────
-type TradingPhase = "afterhours" | "premarket" | "open" | "midday" | "powerhour";
+type TradingPhase = "afterhours" | "earlypremarket" | "premarket" | "open" | "midday" | "powerhour";
 
 function getTradingPhase(): TradingPhase {
   const now = new Date();
   const et  = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
   const m   = et.getHours() * 60 + et.getMinutes();
   const day = et.getDay();
-  if (day === 0 || day === 6) return "afterhours";  // weekend
-  if (m >= 570 && m < 660)  return "open";          // 9:30–11:00 AM
-  if (m >= 660 && m < 840)  return "midday";        // 11:00 AM–2:00 PM
-  if (m >= 840 && m < 960)  return "powerhour";     // 2:00–4:00 PM
-  if (m >= 240 && m < 570)  return "premarket";     // 4:00–9:30 AM
-  return "afterhours";                               // 4:00 PM – 4:00 AM
+  if (day === 0 || day === 6) return "afterhours";    // weekend
+  if (m >= 570 && m < 660)  return "open";            // 9:30–11:00 AM
+  if (m >= 660 && m < 840)  return "midday";          // 11:00 AM–2:00 PM
+  if (m >= 840 && m < 960)  return "powerhour";       // 2:00–4:00 PM
+  if (m >= 420 && m < 570)  return "premarket";       // 7:00–9:30 AM  (active)
+  if (m >= 240 && m < 420)  return "earlypremarket";  // 4:00–7:00 AM  (early)
+  return "afterhours";                                 // 4:00 PM – 4:00 AM
 }
 
 const PHASE_META: Record<TradingPhase, {
@@ -43,14 +45,24 @@ const PHASE_META: Record<TradingPhase, {
       "5m":  { role: "Skip",    roleColor: "text-slate-500", tip: "Market is closed. 5m data is stale and not actionable until tomorrow's pre-market." },
     },
   },
+  earlypremarket: {
+    label: "Early Pre-Market", time: "4 – 7 AM",
+    color: "text-indigo-400", bg: "bg-indigo-500/10", border: "border-indigo-500/30",
+    recommended: "1d",
+    charts: {
+      "1d":  { role: "Plan",   roleColor: "text-indigo-300", tip: "Best time to study the daily chart. Review yesterday's close, identify key S/R levels, and form your trade thesis before the active pre-market begins at 7 AM." },
+      "15m": { role: "Orient", roleColor: "text-indigo-400", tip: "Check overnight futures and any gap from yesterday's close. Volume is thin — use this to map levels, not to trade." },
+      "5m":  { role: "Skip",   roleColor: "text-slate-500",  tip: "Volume is essentially zero this early. 5m data is meaningless until 7–8 AM when institutional pre-market activity begins." },
+    },
+  },
   premarket: {
-    label: "Pre Market", time: "4 – 9:30 AM",
+    label: "Pre-Market", time: "7 – 9:30 AM",
     color: "text-violet-400", bg: "bg-violet-500/10", border: "border-violet-500/30",
     recommended: "15m",
     charts: {
-      "1d":  { role: "Confirm",   roleColor: "text-violet-300", tip: "Final check on the daily trend. Has anything changed overnight (news, earnings, gap)? Confirm the trade thesis still holds before the open." },
-      "15m": { role: "Start here", roleColor: "text-violet-400", tip: "Primary pre-market chart. Map the overnight range, spot the gap from yesterday's close, and mark key 15m S/R levels you'll watch at 9:30 AM." },
-      "5m":  { role: "Skip",       roleColor: "text-slate-500",  tip: "Too noisy pre-market — thin volume and wide spreads create false signals. Switch to 5m at 9:30 AM when volume arrives." },
+      "1d":  { role: "Confirm",    roleColor: "text-violet-300", tip: "Final check on the daily trend. Has anything changed overnight (news, earnings, gap)? Confirm the trade thesis still holds before the open." },
+      "15m": { role: "Start here", roleColor: "text-violet-400", tip: "Primary active pre-market chart. Map the overnight range, spot the gap from yesterday's close, and mark key 15m S/R levels you'll watch at 9:30 AM." },
+      "5m":  { role: "Monitor",    roleColor: "text-slate-400",  tip: "Institutional pre-market volume picks up after 8 AM. Watch for early direction bias but avoid entries — spreads are still wide until the open." },
     },
   },
   open: {
@@ -394,7 +406,6 @@ function PivotChips({ label, levels, activeEntry, onSelect }: {
           >
             <span className="text-[10px] font-semibold" style={{ color }}>{lbl}</span>
             <span className="text-[10px] font-mono text-slate-300">${fmt(value)}</span>
-            {isActive && <span className="w-1.5 h-1.5 rounded-full ml-0.5" style={{ backgroundColor: color }} />}
           </button>
         );
       })}
@@ -412,11 +423,43 @@ function SymbolRow({ row, accountSize, dailyLimit, slPct, tgtPct, screenerColorM
   const [phase] = useState<TradingPhase>(getTradingPhase);
   const [chartMode, setChartMode] = useState<"5m" | "15m" | "1d">(PHASE_META[getTradingPhase()].recommended);
   const [hoveredBtn, setHoveredBtn] = useState<"5m" | "15m" | "1d" | null>(null);
-  const fetchedRef = useRef<string>("");
+  const fetchedRef    = useRef<string>("");
+  const entrySetRef   = useRef<boolean>(false); // true once LTP-based entry has been set
+
+  // Re-evaluate entry once actual LTP is known — picks best level across CPP + FIB by confidence
+  useEffect(() => {
+    if (!row.ltp || !row.pivots || !row.fibPivots || entrySetRef.current) return;
+    entrySetRef.current = true;
+    const ltp = row.ltp;
+    const candidates = [
+      { v: row.pivots.s1, label: "S1" }, { v: row.pivots.p,  label: "P"  },
+      { v: row.pivots.s2, label: "S2" }, { v: row.pivots.s3, label: "S3" },
+      { v: row.fibPivots.s1, label: "S1" }, { v: row.fibPivots.p,  label: "P"  },
+      { v: row.fibPivots.s2, label: "S2" }, { v: row.fibPivots.s3, label: "S3" },
+    ].filter(c => c.v < ltp);
+    if (!candidates.length) return;
+    // Score: proximity within 1.5% = +2, within 3% = +1; then RSI zone, then RVOL
+    const score = (v: number) => {
+      const pct = Math.abs(ltp - v) / ltp * 100;
+      let s = pct <= 1.5 ? 2 : pct <= 3 ? 1 : 0;
+      if (row.rsi !== null && row.rsi >= 45 && row.rsi <= 78) s++;
+      if (row.rvol !== null && row.rvol >= 1.5) s++;
+      return s;
+    };
+    const best = candidates.reduce((a, b) => score(b.v) > score(a.v) ? b : a);
+    const entry = best.v;
+    onUpdate({
+      buyPrice:  entry.toFixed(2),
+      stopLoss:  (entry * (1 - slPct / 100)).toFixed(2),
+      limitSell: (entry * (1 + tgtPct / 100)).toFixed(2),
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row.ltp, row.pivots, row.fibPivots]);
 
   useEffect(() => {
     if (fetchedRef.current === row.symbol) return;
     fetchedRef.current = row.symbol;
+    entrySetRef.current = false;
     onUpdate({ ltp: null, pivots: null, fibPivots: null, bars5m: [], bars15m: [], bars1d: [], buyPrice: "", stopLoss: "", limitSell: "" });
 
     fetch(`/api/quote?symbol=${row.symbol}`)
@@ -432,16 +475,20 @@ function SymbolRow({ row, accountSize, dailyLimit, slPct, tgtPct, screenerColorM
         if (!prev) return;
         const pivots    = computePivots(prev.high, prev.low, prev.close);
         const fibPivots = computeFibPivots(prev.high, prev.low, prev.close);
-        const s2 = pivots.s2;
-        const atrPct = computeATRPct(daily, 14);
+        const atrPct    = computeATRPct(daily, 14);
+        // Temporary entry from daily close proxy (will be refined when LTP arrives)
+        const ltpProxy  = daily[daily.length - 1]?.close ?? prev.close;
+        const tempEntry = [pivots.s1, pivots.p, pivots.s2, pivots.s3]
+          .filter(v => v < ltpProxy)
+          .reduce((best, v) => v > best ? v : best, pivots.s2);
         onUpdate({
           pivots,
           fibPivots,
           bars1d: daily,
           atrPct: atrPct > 0 ? atrPct : null,
-          buyPrice:  s2.toFixed(2),
-          stopLoss:  (s2 * (1 - slPct / 100)).toFixed(2),
-          limitSell: (s2 * (1 + tgtPct / 100)).toFixed(2),
+          buyPrice:  tempEntry.toFixed(2),
+          stopLoss:  (tempEntry * (1 - slPct / 100)).toFixed(2),
+          limitSell: (tempEntry * (1 + tgtPct / 100)).toFixed(2),
         });
       });
 
@@ -500,6 +547,40 @@ function SymbolRow({ row, accountSize, dailyLimit, slPct, tgtPct, screenerColorM
     { label: "R2", value: row.fibPivots.r2, color: "#34d399" },
     { label: "R3", value: row.fibPivots.r3, color: "#6ee7b7" },
   ] : [];
+
+  // ── Confidence dots per pivot level ───────────────────────────────────────
+  // Dot 1 (RVOL): fuel — rvol ≥ 1.5x
+  // Dot 2 (RSI):  momentum zone — 45–78 for support, 55–82 for resistance
+  // Dot 3 (Proximity): price within 1.5% of this level
+  function pivotConfidence(value: number, label: string): { dots: [boolean, boolean, boolean]; score: number } {
+    const isResistance = label === "R1" || label === "R2" || label === "R3";
+    const dot1 = row.rvol !== null && row.rvol >= 1.5;
+    const dot2 = row.rsi !== null
+      ? isResistance ? row.rsi >= 55 && row.rsi <= 82 : row.rsi >= 45 && row.rsi <= 78
+      : false;
+    const dot3 = row.ltp !== null && Math.abs(row.ltp - value) / row.ltp <= 0.015;
+    const dots: [boolean, boolean, boolean] = [dot1, dot2, dot3];
+    return { dots, score: dots.filter(Boolean).length };
+  }
+
+  // Find best support level below LTP (highest score among S1/S2/S3/P below current price)
+  const allSupportLevels = [
+    ...cppLevels.filter(l => ["S1","S2","S3","P"].includes(l.label) && row.ltp !== null && l.value <= row.ltp),
+  ];
+  const bestCppLabel = allSupportLevels.length > 0
+    ? allSupportLevels.reduce((best, l) =>
+        pivotConfidence(l.value, l.label).score > pivotConfidence(best.value, best.label).score ? l : best
+      ).label
+    : null;
+
+  const allFibSupportLevels = [
+    ...fibLevels.filter(l => ["S1","S2","S3","P"].includes(l.label) && row.ltp !== null && l.value <= row.ltp),
+  ];
+  const bestFibLabel = allFibSupportLevels.length > 0
+    ? allFibSupportLevels.reduce((best, l) =>
+        pivotConfidence(l.value, l.label).score > pivotConfidence(best.value, best.label).score ? l : best
+      ).label
+    : null;
 
   // Symbol badge (shared across columns)
   const firstName = row.screenerNames[0];
@@ -589,16 +670,30 @@ function SymbolRow({ row, accountSize, dailyLimit, slPct, tgtPct, screenerColorM
               <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest mb-0.5 px-1">CPP</p>
               <div className="flex flex-col">
                 {[...cppLevels].reverse().map(({ label, value, color }) => {
-                  const isActive = buy > 0 && Math.abs(buy - value) < 0.005;
+                  const isActive  = buy > 0 && Math.abs(buy - value) < 0.005;
+                  const isBest    = label === bestCppLabel;
+                  const { dots, score } = pivotConfidence(value, label);
+                  const dotTip = [
+                    dots[0] ? "RVOL ✓" : "RVOL ✗",
+                    dots[1] ? "RSI ✓"  : "RSI ✗",
+                    dots[2] ? "Near ✓" : "Near ✗",
+                  ].join(" · ");
                   return (
                     <button
                       key={label}
                       onClick={() => handleBuyPrice(value.toFixed(2))}
-                      className={`flex items-center gap-2 px-2 py-[3px] rounded transition-all hover:bg-slate-800/80 ${isActive ? "bg-slate-800" : ""}`}
+                      title={`${label} $${fmt(value)} — ${dotTip}`}
+                      className={`flex items-center gap-2 px-2 py-[3px] rounded transition-all hover:bg-slate-800/80 ${isActive ? "bg-slate-800" : ""} ${isBest && !isActive ? "bg-emerald-950/40" : ""}`}
                     >
                       <span className="text-[10px] font-bold w-4 text-right" style={{ color }}>{label}</span>
                       <span className={`font-mono text-[11px] tabular-nums ${isActive ? "text-white" : "text-slate-400"}`}>${fmt(value)}</span>
-                      {isActive && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: color }} />}
+                      {/* Confidence dots */}
+                      <span className="flex gap-[3px] ml-auto pl-1">
+                        {dots.map((lit, i) => (
+                          <span key={i} style={{ display: "inline-block", width: 5, height: 5, borderRadius: "50%", backgroundColor: lit ? "#4ade80" : "#334155" }} />
+                        ))}
+                      </span>
+                      {isBest && !isActive && <span className="text-emerald-400 text-[8px] font-bold leading-none">✦</span>}
                     </button>
                   );
                 })}
@@ -618,16 +713,32 @@ function SymbolRow({ row, accountSize, dailyLimit, slPct, tgtPct, screenerColorM
               <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest mb-0.5 px-1">FIB</p>
               <div className="flex flex-col">
                 {[...fibLevels].reverse().map(({ label, value, color }) => {
-                  const isActive = buy > 0 && Math.abs(buy - value) < 0.005;
+                  const isActive  = buy > 0 && Math.abs(buy - value) < 0.005;
+                  const isBest    = label === bestFibLabel;
+                  const { dots, score } = pivotConfidence(value, label);
+                  const dotTip = [
+                    dots[0] ? "RVOL ✓" : "RVOL ✗",
+                    dots[1] ? "RSI ✓"  : "RSI ✗",
+                    dots[2] ? "Near ✓" : "Near ✗",
+                  ].join(" · ");
                   return (
                     <button
                       key={label}
                       onClick={() => handleBuyPrice(value.toFixed(2))}
-                      className={`flex items-center gap-2 px-2 py-[3px] rounded transition-all hover:bg-slate-800/80 ${isActive ? "bg-slate-800" : ""}`}
+                      title={`${label} $${fmt(value)} — ${dotTip}`}
+                      className={`flex items-center gap-2 px-2 py-[3px] rounded transition-all hover:bg-slate-800/80 ${isActive ? "bg-slate-800" : ""} ${isBest && !isActive ? "bg-emerald-950/40" : ""}`}
                     >
                       <span className="text-[10px] font-bold w-4 text-right" style={{ color }}>{label}</span>
                       <span className={`font-mono text-[11px] tabular-nums ${isActive ? "text-white" : "text-slate-400"}`}>${fmt(value)}</span>
-                      {isActive && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: color }} />}
+                      {/* Confidence dots */}
+                      {score > 0 && (
+                        <span className="flex gap-[3px] ml-auto pl-1">
+                          {dots.map((lit, i) => (
+                            <span key={i} className={`w-[5px] h-[5px] rounded-full ${lit ? "bg-emerald-400" : "bg-slate-700"}`} />
+                          ))}
+                        </span>
+                      )}
+                      {isBest && !isActive && <span className="text-emerald-400 text-[8px] font-bold leading-none">✦</span>}
                     </button>
                   );
                 })}
@@ -794,8 +905,16 @@ function SymbolRow({ row, accountSize, dailyLimit, slPct, tgtPct, screenerColorM
 // ── Page ─────────────────────────────────────────────────────────────────────
 export default function TradePage() {
   const [rows, setRows] = useState<Row[]>(() => {
-    const saved = getTradeSymbols();
-    const meta  = getTradeMetadata();
+    const meta     = getTradeMetadata();
+    const userSel  = getUserSelected();
+    // Ensure user-selected symbols are always in the saved list (survive screener wipes)
+    const saved    = Array.from(new Set([...getTradeSymbols(), ...userSel]));
+    // Patch metadata for any user-selected symbol missing a label
+    for (const sym of userSel) {
+      if (!meta[sym] || !meta[sym].includes("User Selected")) {
+        meta[sym] = [...(meta[sym] ?? []).filter(n => n !== "User Selected"), "User Selected"];
+      }
+    }
     return saved.length > 0 ? saved.map(s => makeRow(s, meta[s] ?? [])) : [makeRow()];
   });
   const [accountSize, setAccountSize] = useState(() => localStorage.getItem("trade-account-size") ?? "50000");
@@ -825,7 +944,8 @@ export default function TradePage() {
   }, []);
 
   // ── Screener population ──────────────────────────────────────────────────
-  const runScreenerPopulation = useCallback(async () => {
+  // clearUser=true only at market close — wipes the day's manual picks
+  const runScreenerPopulation = useCallback(async (clearUser = false) => {
     setPopulating(true);
     try {
       const screeners = getSavedScreeners();
@@ -878,6 +998,16 @@ export default function TradePage() {
         // non-critical — continue without rising data
       }
 
+      // ── Merge user-selected (or clear them at market close) ──────────────
+      if (clearUser) {
+        clearUserSelected();
+      } else {
+        for (const sym of getUserSelected()) {
+          if (!symbolMap.has(sym)) symbolMap.set(sym, new Set());
+          symbolMap.get(sym)!.add("User Selected");
+        }
+      }
+
       // Persist metadata + rebuild rows
       const meta: Record<string, string[]> = {};
       const symbols: string[] = [];
@@ -905,7 +1035,7 @@ export default function TradePage() {
     const t = setInterval(() => {
       const curr = getMarketSession();
       if (prevSessionRef.current === "open" && curr === "afterhours") {
-        runScreenerPopulation();
+        runScreenerPopulation(true); // clear user-selected at market close
       }
       prevSessionRef.current = curr;
     }, 30_000);
@@ -977,7 +1107,7 @@ export default function TradePage() {
   const addRow = () => {
     const existing = rows.map(r => r.symbol);
     if (existing.includes(pickerSymbol)) return; // already in list
-    // Persist metadata so "User Selected" survives reload
+    addUserSelected(pickerSymbol);
     const meta = getTradeMetadata();
     meta[pickerSymbol] = ["User Selected"];
     setTradeMetadata(meta);
@@ -989,7 +1119,7 @@ export default function TradePage() {
     setRows(prev => {
       const row = prev.find(r => r.id === id);
       if (row) {
-        // Clean up metadata for user-selected removal
+        removeUserSelected(row.symbol);
         const meta = getTradeMetadata();
         delete meta[row.symbol];
         setTradeMetadata(meta);
@@ -1051,7 +1181,7 @@ export default function TradePage() {
               <span className="text-[11px] text-slate-500 tabular-nums">Reset {lastPopulated}</span>
             )}
             <button
-              onClick={runScreenerPopulation}
+              onClick={() => runScreenerPopulation()}
               disabled={populating}
               title="Reset trade list and re-run all screeners"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 text-xs text-slate-300 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
