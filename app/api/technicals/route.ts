@@ -2,10 +2,9 @@ import { NextResponse } from "next/server";
 import YahooFinance from "yahoo-finance2";
 import { BLUE_CHIPS } from "@/lib/bluechips";
 import { calcTechSignal, computeMASignals, type SignalLabel, type MAResult } from "@/lib/indicators";
+import { aggregateBars, toBars } from "@/lib/barAggregation";
 
 const yahooFinance = new YahooFinance();
-
-type Bar = { time: number; open: number; high: number; low: number; close: number; volume: number };
 
 export type TfLabel = "1m" | "5m" | "15m" | "30m" | "1H" | "5H" | "1D" | "1W" | "1M";
 export type TechRow = {
@@ -27,38 +26,6 @@ const TIMEFRAMES: { label: TfLabel; interval: string; days: number; is5H: boolea
   { label: "1W",  interval: "1wk", days: 730,  is5H: false },
   { label: "1M",  interval: "1mo", days: 1826, is5H: false },
 ];
-
-function aggregateTo5H(bars: Bar[]): Bar[] {
-  const buckets = new Map<number, Bar[]>();
-  for (const bar of bars) {
-    const key = Math.floor(bar.time / (5 * 3600)) * (5 * 3600);
-    if (!buckets.has(key)) buckets.set(key, []);
-    buckets.get(key)!.push(bar);
-  }
-  return Array.from(buckets.entries())
-    .sort(([a], [b]) => a - b)
-    .map(([key, chunk]) => ({
-      time:   key,
-      open:   chunk[0].open,
-      high:   Math.max(...chunk.map((b) => b.high)),
-      low:    Math.min(...chunk.map((b) => b.low)),
-      close:  chunk[chunk.length - 1].close,
-      volume: chunk.reduce((s, b) => s + b.volume, 0),
-    }));
-}
-
-function toBars(quotes: { date: Date | string; open?: number | null; high?: number | null; low?: number | null; close?: number | null; volume?: number | null }[]): Bar[] {
-  return quotes
-    .filter((q) => q.open != null && q.close != null)
-    .map((q) => ({
-      time:   Math.floor((q.date instanceof Date ? q.date : new Date(q.date)).getTime() / 1000),
-      open:   q.open!,
-      high:   q.high ?? q.open!,
-      low:    q.low  ?? q.open!,
-      close:  q.close!,
-      volume: q.volume ?? 0,
-    }));
-}
 
 // 5-minute in-memory cache
 let cache: { rows: TechRow[]; at: number } | null = null;
@@ -106,7 +73,7 @@ export async function GET() {
         const bars = toBars(res.value.quotes ?? []);
         const symbol = BLUE_CHIPS[i].symbol;
         for (const tf of tfs) {
-          const finalBars = tf.is5H ? aggregateTo5H(bars) : bars;
+          const finalBars = tf.is5H ? aggregateBars(bars, 5 * 3600) : bars;
           signals[symbol][tf.label] = calcTechSignal(finalBars);
           if (tf.label === "1D") {
             maResults[symbol] = computeMASignals(bars);

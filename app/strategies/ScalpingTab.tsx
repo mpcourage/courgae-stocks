@@ -1,20 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import RefreshRing from "@/components/RefreshRing";
-import { getMarketSession } from "@/lib/marketSession";
 import AddToTradeButton from "@/components/AddToTradeButton";
+import { safeJson } from "@/lib/fetch";
+import { useAutoRefresh } from "@/lib/hooks/useAutoRefresh";
 import type { ScalpingCandidate } from "@/app/api/strategies/scalping/route";
-
-async function safeJson(res: Response) {
-  const text = await res.text();
-  if (!text) throw new Error(`Server returned empty response (${res.status})`);
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(`Invalid JSON from server: ${text.slice(0, 120)}`);
-  }
-}
 
 const SIGNAL_META = {
   strong_buy:  { label: "Strong Buy",  bg: "bg-emerald-500/20", text: "text-emerald-400", border: "border-emerald-500/40" },
@@ -65,7 +56,6 @@ export default function ScalpingTab() {
   const [error, setError] = useState<string | null>(null);
   const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [marketOpen, setMarketOpen] = useState<boolean | null>(null);
-  const [countdown, setCountdown] = useState(30);
 
   // Filters
   const [minRvol, setMinRvol] = useState(0);
@@ -77,11 +67,11 @@ export default function ScalpingTab() {
     setError(null);
     try {
       const res = await fetch("/api/strategies/scalping");
-      const data = await safeJson(res);
-      if (data.error) throw new Error(data.error);
-      setCandidates(data.candidates ?? []);
-      setFetchedAt(data.fetchedAt ?? null);
-      setMarketOpen(data.marketOpen ?? null);
+      const data = await safeJson(res) as Record<string, unknown>;
+      if (data.error) throw new Error(data.error as string);
+      setCandidates((data.candidates as ScalpingCandidate[]) ?? []);
+      setFetchedAt((data.fetchedAt as string) ?? null);
+      setMarketOpen((data.marketOpen as boolean) ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -89,19 +79,7 @@ export default function ScalpingTab() {
     }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  useEffect(() => {
-    setCountdown(30);
-    const t = setInterval(() => {
-      if (getMarketSession() === "closed") return;
-      setCountdown((c) => {
-        if (c <= 1) { fetchData(); return 30; }
-        return c - 1;
-      });
-    }, 1000);
-    return () => clearInterval(t);
-  }, [fetchData]);
+  const { countdown, refresh } = useAutoRefresh(fetchData, 30);
 
   const sectors = Array.from(new Set(candidates.map((c) => c.sector))).sort();
 
@@ -148,7 +126,7 @@ export default function ScalpingTab() {
 
       {/* Header row: stats + refresh */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex gap-3 flex-wrap">
+        <div className="flex gap-2 md:gap-3 flex-wrap">
           {[
             { label: "Strong Buy", value: summary.strongBuy, color: "text-emerald-400" },
             { label: "Buy", value: summary.buy, color: "text-green-400" },
@@ -156,9 +134,9 @@ export default function ScalpingTab() {
             { label: "Strong Sell", value: summary.strongSell, color: "text-red-400" },
             { label: "High RVOL", value: summary.highRvol, color: "text-amber-400" },
           ].map((s) => (
-            <div key={s.label} className="rounded-xl bg-slate-900/80 border border-slate-800 px-4 py-2.5 text-center min-w-[80px]">
-              <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-0.5">{s.label}</p>
-              <p className={`text-xl font-bold tabular-nums ${s.color}`}>{s.value}</p>
+            <div key={s.label} className="rounded-xl bg-slate-900/80 border border-slate-800 px-3 md:px-4 py-2 md:py-2.5 text-center min-w-[64px] md:min-w-[80px]">
+              <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-0.5 leading-tight">{s.label}</p>
+              <p className={`text-lg md:text-xl font-bold tabular-nums ${s.color}`}>{s.value}</p>
             </div>
           ))}
         </div>
@@ -168,7 +146,7 @@ export default function ScalpingTab() {
               {new Date(fetchedAt).toLocaleTimeString()}
             </span>
           )}
-          <RefreshRing countdown={countdown} total={30} loading={loading} onClick={() => { fetchData(); setCountdown(30); }} />
+          <RefreshRing countdown={countdown} total={30} loading={loading} onClick={refresh} />
         </div>
       </div>
 

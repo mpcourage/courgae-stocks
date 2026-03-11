@@ -47,7 +47,15 @@ function risingScore(params: {
   return Math.min(100, Math.max(0, Math.round(score)));
 }
 
+// ── 60-second server-side cache ──────────────────────────────────────────────
+let cache: { data: unknown; ts: number } | null = null;
+const CACHE_TTL_MS = 60_000;
+
 export async function GET() {
+  if (cache && Date.now() - cache.ts < CACHE_TTL_MS) {
+    return NextResponse.json(cache.data);
+  }
+
   try {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 30);
@@ -124,11 +132,13 @@ export async function GET() {
     const rising = results.filter((r) => r.score >= 60).length;
     const aboveSma20Count = results.filter((r) => r.aboveSma20).length;
 
-    return NextResponse.json({
+    const body = {
       stocks: results,
       summary: { total: results.length, rising, aboveSma20: aboveSma20Count },
       generatedAt: new Date().toISOString(),
-    });
+    };
+    cache = { data: body, ts: Date.now() };
+    return NextResponse.json(body);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

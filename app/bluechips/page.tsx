@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import RefreshRing from "@/components/RefreshRing";
-import { getMarketSession } from "@/lib/marketSession";
 import {
   AreaChart,
   Area,
@@ -15,6 +14,8 @@ import {
 } from "recharts";
 import Sparkline from "@/components/Sparkline";
 import AddToTradeButton from "@/components/AddToTradeButton";
+import { safeJson } from "@/lib/fetch";
+import { useAutoRefresh } from "@/lib/hooks/useAutoRefresh";
 
 interface StockSnapshot {
   symbol: string;
@@ -61,23 +62,12 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-async function safeJson(res: Response) {
-  const text = await res.text();
-  if (!text) throw new Error(`Server returned empty response (${res.status})`);
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error(`Invalid JSON from server: ${text.slice(0, 120)}`);
-  }
-}
-
 export default function BlueChipsPage() {
   const [stocks, setStocks] = useState<StockSnapshot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [marketOpen, setMarketOpen] = useState<boolean | null>(null);
-  const [countdown, setCountdown] = useState(60);
 
   const [sparklines, setSparklines] = useState<Record<string, number[]>>({});
   const [sparkloading, setSparkloading] = useState(false);
@@ -143,11 +133,11 @@ export default function BlueChipsPage() {
       setLoading(true);
       setError(null);
       const res = await fetch("/api/bluechips");
-      const data = await safeJson(res);
-      if (data.error) throw new Error(data.error);
-      setStocks(data.stocks ?? []);
-      setUpdatedAt(data.updatedAt ?? null);
-      setMarketOpen(data.marketOpen ?? null);
+      const data = await safeJson(res) as Record<string, unknown>;
+      if (data.error) throw new Error(data.error as string);
+      setStocks((data.stocks as StockSnapshot[]) ?? []);
+      setUpdatedAt((data.updatedAt as string) ?? null);
+      setMarketOpen((data.marketOpen as boolean) ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -159,7 +149,7 @@ export default function BlueChipsPage() {
     setSparkloading(true);
     try {
       const res = await fetch("/api/bluechips/sparklines");
-      const data = await safeJson(res);
+      const data = await safeJson(res) as Record<string, number[]>;
       setSparklines(data);
     } catch {
       // non-critical — sparklines stay empty
@@ -168,32 +158,19 @@ export default function BlueChipsPage() {
     }
   }, []);
 
-  useEffect(() => {
+  const fetchAll = useCallback(() => {
     fetchStocks();
     fetchSparklines();
   }, [fetchStocks, fetchSparklines]);
 
-  useEffect(() => {
-    const t = setInterval(() => {
-      if (getMarketSession() === "closed") return;
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          fetchStocks();
-          fetchSparklines();
-          return 60;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(t);
-  }, [fetchStocks, fetchSparklines]);
+  const { countdown, refresh } = useAutoRefresh(fetchAll, 60);
 
   useEffect(() => {
     if (!selectedSymbol) { setHistoryBars([]); return; }
     setHistoryLoading(true);
     fetch(`/api/bluechips/history?symbol=${selectedSymbol}`)
-      .then((r) => safeJson(r))
-      .then((d) => { if (!d.error) setHistoryBars(d.bars ?? []); })
+      .then((r) => safeJson(r) as Promise<Record<string, unknown>>)
+      .then((d) => { if (!d.error) setHistoryBars((d.bars as HistoryBar[]) ?? []); })
       .catch(() => {})
       .finally(() => setHistoryLoading(false));
   }, [selectedSymbol]);
@@ -258,26 +235,26 @@ export default function BlueChipsPage() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto p-6 space-y-6">
+    <div className="max-w-7xl mx-auto p-3 md:p-6 space-y-4 md:space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-4">
+      <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-white">Watch List</h1>
+          <div className="flex items-center gap-2 md:gap-3">
+            <h1 className="text-xl md:text-2xl font-bold text-white">Watch List</h1>
             {marketOpen !== null && (
               <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${marketOpen ? "bg-green-500/20 text-green-400 border border-green-500/30" : "bg-slate-700/50 text-slate-400 border border-slate-600"}`}>
-                {marketOpen ? "● Market Open" : "● Market Closed"}
+                {marketOpen ? "● Open" : "● Closed"}
               </span>
             )}
           </div>
-          <p className="text-sm text-slate-400 mt-0.5">
+          <p className="hidden md:block text-sm text-slate-400 mt-0.5">
             Top 50 US blue chip stocks · 60-day sparklines · auto-refreshes every 60s
             {marketOpen === false && " · showing cached data"}
           </p>
         </div>
         <div className="flex items-center gap-3">
           {updatedAt && (
-            <span className="text-[11px] text-slate-500 tabular-nums">
+            <span className="hidden md:block text-[11px] text-slate-500 tabular-nums">
               Updated {new Date(updatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true, timeZone: "America/New_York" })}
             </span>
           )}
@@ -285,7 +262,7 @@ export default function BlueChipsPage() {
             countdown={countdown}
             total={60}
             loading={loading}
-            onClick={() => { fetchStocks(); fetchSparklines(); setCountdown(60); }}
+            onClick={refresh}
           />
         </div>
       </div>
@@ -298,48 +275,50 @@ export default function BlueChipsPage() {
       )}
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-2 md:gap-4">
         {[
-          { label: "Gainers", value: stats.gainers, color: "text-green-400", tint: "from-green-500/5 to-transparent border-green-500/20", icon: "\u25B2" },
-          { label: "Losers", value: stats.losers, color: "text-red-400", tint: "from-red-500/5 to-transparent border-red-500/20", icon: "\u25BC" },
-          { label: "Avg Change", value: fmtPct(stats.avg), color: stats.avg >= 0 ? "text-green-400" : "text-red-400", tint: stats.avg >= 0 ? "from-green-500/5 to-transparent border-green-500/20" : "from-red-500/5 to-transparent border-red-500/20", icon: "~" },
+          { label: "Gainers", value: stats.gainers, color: "text-green-400", tint: "from-green-500/5 to-transparent border-green-500/20", icon: "▲" },
+          { label: "Losers",  value: stats.losers,  color: "text-red-400",   tint: "from-red-500/5 to-transparent border-red-500/20",   icon: "▼" },
+          { label: "Avg",     value: fmtPct(stats.avg), color: stats.avg >= 0 ? "text-green-400" : "text-red-400", tint: stats.avg >= 0 ? "from-green-500/5 to-transparent border-green-500/20" : "from-red-500/5 to-transparent border-red-500/20", icon: "~" },
         ].map((s) => (
-          <div key={s.label} className={`rounded-xl bg-gradient-to-br ${s.tint} border p-4`}>
-            <p className="text-xs text-slate-500 uppercase tracking-wider mb-1">{s.icon} {s.label}</p>
-            <p className={`text-2xl font-bold tabular-nums ${s.color}`}>{s.value}</p>
+          <div key={s.label} className={`rounded-xl bg-gradient-to-br ${s.tint} border p-3 md:p-4`}>
+            <p className="text-[10px] md:text-xs text-slate-500 uppercase tracking-wider mb-1">{s.icon} {s.label}</p>
+            <p className={`text-xl md:text-2xl font-bold tabular-nums ${s.color}`}>{s.value}</p>
           </div>
         ))}
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3 items-center">
+      <div className="flex flex-col md:flex-row gap-2 md:gap-3 md:items-center">
         <input
           type="text"
           placeholder="Search symbol or name..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="px-3 py-1.5 rounded-md bg-slate-900 border border-slate-700 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-slate-500 w-56"
+          className="px-3 py-1.5 rounded-md bg-slate-900 border border-slate-700 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-slate-500 w-full md:w-56"
         />
-        <select
-          value={sectorFilter}
-          onChange={(e) => setSectorFilter(e.target.value)}
-          className="px-3 py-1.5 rounded-md bg-slate-900 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-slate-500"
-        >
-          <option value="all">All Sectors</option>
-          {sectors.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
-        <button
-          onClick={() => setShowUniverse(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm text-slate-200 transition-colors"
-        >
-          ⚙ Manage Universe
-        </button>
+        <div className="flex gap-2">
+          <select
+            value={sectorFilter}
+            onChange={(e) => setSectorFilter(e.target.value)}
+            className="flex-1 md:flex-none px-3 py-1.5 rounded-md bg-slate-900 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-slate-500"
+          >
+            <option value="all">All Sectors</option>
+            {sectors.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          <button
+            onClick={() => setShowUniverse(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm text-slate-200 transition-colors whitespace-nowrap"
+          >
+            ⚙ <span className="hidden md:inline">Manage </span>Universe
+          </button>
+        </div>
       </div>
 
-      {/* Table */}
-      <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden">
+      {/* ── Desktop table ── */}
+      <div className="hidden md:block rounded-xl bg-slate-900 border border-slate-800 overflow-hidden">
         {loading && stocks.length === 0 ? (
           <div className="h-48 flex items-center justify-center text-slate-500">
             <span className="animate-spin text-2xl mr-2">↻</span> Loading 50 stocks...
@@ -350,22 +329,14 @@ export default function BlueChipsPage() {
               <thead className="sticky top-0 z-10 backdrop-blur-sm bg-slate-900/90">
                 <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase tracking-wider">
                   <th className="px-3 py-3 text-center w-10">#</th>
-                  <th className="px-3 py-3 text-left cursor-pointer hover:text-white select-none" onClick={() => handleSort("symbol")}>
-                    Symbol <SortArrow col="symbol" />
-                  </th>
+                  <th className="px-3 py-3 text-left cursor-pointer hover:text-white select-none" onClick={() => handleSort("symbol")}>Symbol <SortArrow col="symbol" /></th>
                   <th className="px-3 py-3 text-left">Name</th>
                   <th className="px-3 py-3 text-left">Sector</th>
-                  <th className="px-3 py-3 text-right cursor-pointer hover:text-white select-none" onClick={() => handleSort("price")}>
-                    Price <SortArrow col="price" />
-                  </th>
-                  <th className="px-3 py-3 text-right cursor-pointer hover:text-white select-none" onClick={() => handleSort("changePct")}>
-                    Change % <SortArrow col="changePct" />
-                  </th>
+                  <th className="px-3 py-3 text-right cursor-pointer hover:text-white select-none" onClick={() => handleSort("price")}>Price <SortArrow col="price" /></th>
+                  <th className="px-3 py-3 text-right cursor-pointer hover:text-white select-none" onClick={() => handleSort("changePct")}>Change % <SortArrow col="changePct" /></th>
                   <th className="px-3 py-3 text-center">60-Day Chart</th>
                   <th className="px-3 py-3 text-right">Day Range</th>
-                  <th className="px-3 py-3 text-right cursor-pointer hover:text-white select-none" onClick={() => handleSort("volume")}>
-                    Volume <SortArrow col="volume" />
-                  </th>
+                  <th className="px-3 py-3 text-right cursor-pointer hover:text-white select-none" onClick={() => handleSort("volume")}>Volume <SortArrow col="volume" /></th>
                 </tr>
               </thead>
               <tbody>
@@ -382,59 +353,78 @@ export default function BlueChipsPage() {
                     <td className="px-3 py-2 text-center text-slate-500">{idx + 1}</td>
                     <td className="px-3 py-2 font-bold">
                       <div className="flex items-center gap-1.5">
-                        <Link
-                          href={`/equity?symbol=${stock.symbol}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-sky-400 hover:text-sky-300 transition-colors"
-                        >
-                          {stock.symbol}
-                        </Link>
+                        <Link href={`/equity?symbol=${stock.symbol}`} onClick={(e) => e.stopPropagation()} className="text-sky-400 hover:text-sky-300 transition-colors">{stock.symbol}</Link>
                         <AddToTradeButton symbol={stock.symbol} />
                       </div>
                     </td>
                     <td className="px-3 py-2 text-slate-400 max-w-[160px] truncate">{stock.name}</td>
-                    <td className="px-3 py-2">
-                      <span className="px-2 py-0.5 rounded-full text-xs bg-slate-800 border border-slate-700 text-slate-300">
-                        {stock.sector}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono font-semibold text-white tabular-nums">
-                      {fmt(stock.price)}
-                    </td>
-                    <td className={`px-3 py-2 text-right font-mono font-semibold tabular-nums ${stock.changePct >= 0 ? "text-green-400" : "text-red-400"}`}>
-                      {stock.changePct !== 0 ? fmtPct(stock.changePct) : "—"}
-                    </td>
+                    <td className="px-3 py-2"><span className="px-2 py-0.5 rounded-full text-xs bg-slate-800 border border-slate-700 text-slate-300">{stock.sector}</span></td>
+                    <td className="px-3 py-2 text-right font-mono font-semibold text-white tabular-nums">{fmt(stock.price)}</td>
+                    <td className={`px-3 py-2 text-right font-mono font-semibold tabular-nums ${stock.changePct >= 0 ? "text-green-400" : "text-red-400"}`}>{stock.changePct !== 0 ? fmtPct(stock.changePct) : "—"}</td>
                     <td className="px-3 py-2 text-center">
-                      {sparkloading && !sparklines[stock.symbol] ? (
-                        <div className="w-[120px] h-[36px] rounded bg-slate-800 animate-pulse mx-auto" />
-                      ) : (
-                        <div className="flex justify-center">
-                          <Sparkline
-                            data={sparklines[stock.symbol] ?? []}
-                            positive={stock.changePct >= 0}
-                          />
-                        </div>
-                      )}
+                      {sparkloading && !sparklines[stock.symbol]
+                        ? <div className="w-[120px] h-[36px] rounded bg-slate-800 animate-pulse mx-auto" />
+                        : <div className="flex justify-center"><Sparkline data={sparklines[stock.symbol] ?? []} positive={stock.changePct >= 0} /></div>
+                      }
                     </td>
-                    <td className="px-3 py-2 text-right font-mono text-xs text-slate-400">
-                      {stock.dayHigh > 0 ? `$${stock.dayLow.toFixed(2)} – $${stock.dayHigh.toFixed(2)}` : "—"}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono text-sm text-slate-300 tabular-nums">
-                      {fmtVol(stock.volume)}
-                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-xs text-slate-400">{stock.dayHigh > 0 ? `$${stock.dayLow.toFixed(2)} – $${stock.dayHigh.toFixed(2)}` : "—"}</td>
+                    <td className="px-3 py-2 text-right font-mono text-sm text-slate-300 tabular-nums">{fmtVol(stock.volume)}</td>
                   </tr>
                 ))}
                 {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="px-3 py-10 text-center text-slate-500">
-                      No stocks match your filters.
-                    </td>
-                  </tr>
+                  <tr><td colSpan={9} className="px-3 py-10 text-center text-slate-500">No stocks match your filters.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
         )}
+      </div>
+
+      {/* ── Mobile card list ── */}
+      <div className="md:hidden space-y-2">
+        {loading && stocks.length === 0 ? (
+          <div className="h-40 flex items-center justify-center text-slate-500">
+            <span className="animate-spin text-2xl mr-2">↻</span> Loading…
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="py-10 text-center text-slate-500 text-sm">No stocks match your filters.</div>
+        ) : filtered.map((stock) => (
+          <div
+            key={stock.symbol}
+            onClick={() => setSelectedSymbol(selectedSymbol === stock.symbol ? null : stock.symbol)}
+            className={`rounded-xl bg-slate-900 border p-3 cursor-pointer transition-all ${
+              selectedSymbol === stock.symbol ? "border-sky-500/50 bg-slate-800" : "border-slate-800 active:bg-slate-800/60"
+            }`}
+          >
+            {/* Row 1: symbol + name + change */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <Link href={`/equity?symbol=${stock.symbol}`} onClick={(e) => e.stopPropagation()}
+                  className="text-sky-400 font-bold text-sm shrink-0">{stock.symbol}</Link>
+                <span className="text-slate-500 text-xs truncate">{stock.name}</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <AddToTradeButton symbol={stock.symbol} />
+                <span className={`font-mono font-semibold text-sm tabular-nums ${stock.changePct >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  {stock.changePct !== 0 ? fmtPct(stock.changePct) : "—"}
+                </span>
+              </div>
+            </div>
+            {/* Row 2: price + sparkline + volume */}
+            <div className="flex items-center justify-between gap-2 mt-1.5">
+              <div className="flex items-center gap-3">
+                <span className="font-mono font-semibold text-white text-sm tabular-nums">{fmt(stock.price)}</span>
+                <span className="text-slate-600 text-xs">{fmtVol(stock.volume)}</span>
+              </div>
+              <div>
+                {sparkloading && !sparklines[stock.symbol]
+                  ? <div className="w-[80px] h-[28px] rounded bg-slate-800 animate-pulse" />
+                  : <Sparkline data={sparklines[stock.symbol] ?? []} positive={stock.changePct >= 0} />
+                }
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Manage Universe modal */}
@@ -449,28 +439,30 @@ export default function BlueChipsPage() {
             {/* Add symbol */}
             <div className="space-y-2">
               <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Add Symbol</p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Ticker (e.g. SHOP)"
-                  value={addSymbol}
-                  onChange={(e) => setAddSymbol(e.target.value.toUpperCase())}
-                  onKeyDown={(e) => e.key === "Enter" && handleAddSymbol()}
-                  className="flex-1 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
-                />
-                <input
-                  type="text"
-                  placeholder="Sector (optional)"
-                  value={addSector}
-                  onChange={(e) => setAddSector(e.target.value)}
-                  className="w-36 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
-                />
+              <div className="flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Ticker (e.g. SHOP)"
+                    value={addSymbol}
+                    onChange={(e) => setAddSymbol(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => e.key === "Enter" && handleAddSymbol()}
+                    className="flex-1 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                  />
+                  <input
+                    type="text"
+                    placeholder="Sector (optional)"
+                    value={addSector}
+                    onChange={(e) => setAddSector(e.target.value)}
+                    className="flex-1 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                  />
+                </div>
                 <button
                   onClick={handleAddSymbol}
                   disabled={addLoading || !addSymbol.trim()}
-                  className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors"
+                  className="w-full px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors"
                 >
-                  {addLoading ? "…" : "Add"}
+                  {addLoading ? "…" : "Add Symbol"}
                 </button>
               </div>
               {addError && <p className="text-xs text-red-400">{addError}</p>}
@@ -501,9 +493,9 @@ export default function BlueChipsPage() {
         </div>
       )}
 
-      {/* Full 60-day chart on row click */}
+      {/* Full 60-day chart on row/card click */}
       {selectedSymbol && (
-        <div className="rounded-xl bg-slate-900 border border-slate-800 p-5">
+        <div className="rounded-xl bg-slate-900 border border-slate-800 p-3 md:p-5">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-base font-semibold text-white">
@@ -532,7 +524,7 @@ export default function BlueChipsPage() {
               <span className="animate-spin text-2xl mr-2">↻</span> Loading history...
             </div>
           ) : chartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={240}>
+            <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: 10 }}>
                 <defs>
                   <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">

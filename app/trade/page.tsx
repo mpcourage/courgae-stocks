@@ -423,6 +423,7 @@ function SymbolRow({ row, accountSize, dailyLimit, slPct, tgtPct, screenerColorM
   const [phase] = useState<TradingPhase>(getTradingPhase);
   const [chartMode, setChartMode] = useState<"5m" | "15m" | "1d">(PHASE_META[getTradingPhase()].recommended);
   const [hoveredBtn, setHoveredBtn] = useState<"5m" | "15m" | "1d" | null>(null);
+  const [mobileTab, setMobileTab] = useState<"pivots" | "chart">("pivots");
   const fetchedRef    = useRef<string>("");
   const entrySetRef   = useRef<boolean>(false); // true once LTP-based entry has been set
 
@@ -582,6 +583,29 @@ function SymbolRow({ row, accountSize, dailyLimit, slPct, tgtPct, screenerColorM
       ).label
     : null;
 
+  // ── Shared pivot button renderer (used by both mobile and desktop) ─────────
+  const renderPivotBtn = (label: string, value: number, color: string, isActive: boolean, isBest: boolean) => {
+    const { dots } = pivotConfidence(value, label);
+    const dotTip = [`RVOL ${dots[0]?"✓":"✗"}`, `RSI ${dots[1]?"✓":"✗"}`, `Near ${dots[2]?"✓":"✗"}`].join(" · ");
+    return (
+      <button
+        key={label}
+        onClick={() => handleBuyPrice(value.toFixed(2))}
+        title={`${label} $${fmt(value)} — ${dotTip}`}
+        className={`flex items-center gap-2 px-2 py-[3px] rounded transition-all hover:bg-slate-800/80 ${isActive ? "bg-slate-800" : ""} ${isBest && !isActive ? "bg-emerald-950/40" : ""}`}
+      >
+        <span className="text-[10px] font-bold w-4 text-right" style={{ color }}>{label}</span>
+        <span className={`font-mono text-[11px] tabular-nums ${isActive ? "text-white" : "text-slate-400"}`}>${fmt(value)}</span>
+        <span className="flex gap-[3px] ml-auto pl-1">
+          {dots.map((lit, i) => (
+            <span key={i} style={{ display: "inline-block", width: 5, height: 5, borderRadius: "50%", backgroundColor: lit ? "#4ade80" : "#334155" }} />
+          ))}
+        </span>
+        {isBest && !isActive && <span className="text-emerald-400 text-[8px] font-bold leading-none">✦</span>}
+      </button>
+    );
+  };
+
   // Symbol badge (shared across columns)
   const firstName = row.screenerNames[0];
   const symColor  = !firstName ? "#94a3b8"
@@ -651,12 +675,154 @@ function SymbolRow({ row, accountSize, dailyLimit, slPct, tgtPct, screenerColorM
   );
 
   return (
-    <div className={`bg-slate-900 border rounded-xl p-4 flex gap-3 ${belowS2 ? "border-orange-500/30" : "border-slate-800"}`}>
+    <div className={`bg-slate-900 border rounded-xl ${belowS2 ? "border-orange-500/30" : "border-slate-800"}`}>
 
-      {/* ── Left section: CPP + FIB + Trade inputs ── */}
-      <div className="flex gap-2">
+      {/* ── MOBILE layout (tab: Pivots | Chart) ─────────────────────────── */}
+      <div className="md:hidden p-3 flex flex-col gap-3">
 
-          {/* ── CPP column — Symbol header ── */}
+        {/* Header row */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            {symbolBadge}
+            {row.ltp
+              ? <span className="text-sky-400 font-mono text-sm font-semibold shrink-0">${fmt(row.ltp)}</span>
+              : <span className="text-slate-600 text-sm">—</span>
+            }
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Phase badge */}
+            {(() => { const pm = PHASE_META[phase]; return (
+              <span className={`px-2 py-0.5 rounded text-[9px] font-medium border ${pm.color} ${pm.bg} ${pm.border}`}>
+                {pm.label}
+              </span>
+            ); })()}
+            {row.screenerNames.includes("User Selected") && (
+              <button onClick={onRemove} className="p-1 rounded text-slate-700 hover:text-red-400 hover:bg-red-400/10 transition-all" title="Remove">
+                <svg width="11" height="11" viewBox="0 0 13 13" fill="none"><path d="M2 3.5H11M4.5 3.5V2.5C4.5 2.22386 4.72386 2 5 2H8C8.27614 2 8.5 2.22386 8.5 2.5V3.5M5.5 6V10M7.5 6V10M3 3.5L3.5 11C3.5 11.2761 3.72386 11.5 4 11.5H9C9.27614 11.5 9.5 11.2761 9.5 11L10 3.5H3Z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Tab buttons */}
+        <div className="flex rounded-lg overflow-hidden border border-slate-700">
+          <button
+            onClick={() => setMobileTab("pivots")}
+            className={`flex-1 py-1.5 text-xs font-semibold transition-colors ${mobileTab === "pivots" ? "bg-slate-700 text-white" : "bg-slate-800/50 text-slate-500"}`}
+          >Pivots</button>
+          <button
+            onClick={() => setMobileTab("chart")}
+            className={`flex-1 py-1.5 text-xs font-semibold transition-colors ${mobileTab === "chart" ? "bg-slate-700 text-white" : "bg-slate-800/50 text-slate-500"}`}
+          >Chart</button>
+        </div>
+
+        {/* Pivots tab */}
+        {mobileTab === "pivots" && (
+          <div className="flex flex-col gap-3">
+            {/* CPP + FIB side by side */}
+            {cppLevels.length > 0 && (
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest mb-0.5 px-1">CPP</p>
+                  <div className="flex flex-col">
+                    {[...cppLevels].reverse().map(({ label, value, color }) =>
+                      renderPivotBtn(label, value, color, buy > 0 && Math.abs(buy - value) < 0.005, label === bestCppLabel)
+                    )}
+                  </div>
+                </div>
+                {fibLevels.length > 0 && (
+                  <div className="flex-1">
+                    <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest mb-0.5 px-1">FIB</p>
+                    <div className="flex flex-col">
+                      {[...fibLevels].reverse().map(({ label, value, color }) =>
+                        renderPivotBtn(label, value, color, buy > 0 && Math.abs(buy - value) < 0.005, label === bestFibLabel)
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Trade inputs — 3 col grid */}
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <p className="text-[9px] font-semibold text-emerald-400 uppercase tracking-wider mb-0.5">TGT {valid && target > buy ? fmtPct(targetPct) : ""}</p>
+                <div className="relative">
+                  <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">$</span>
+                  <input type="number" value={row.limitSell} onChange={e => onUpdate({ limitSell: e.target.value })} placeholder="0.00"
+                    className={`w-full bg-slate-800 border text-white rounded-md pl-4 pr-1 py-1 text-xs font-mono focus:outline-none focus:ring-1 ${valid && target > buy ? "border-emerald-500/40 focus:ring-emerald-500/40" : "border-slate-700"}`} />
+                </div>
+              </div>
+              <div>
+                <p className={`text-[9px] font-semibold uppercase tracking-wider mb-0.5 ${belowS2 ? "text-orange-400" : "text-sky-400"}`}>ENT {belowS2 ? "⚠S2" : ""}</p>
+                <div className="relative">
+                  <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">$</span>
+                  <input type="number" value={row.buyPrice} onChange={e => handleBuyPrice(e.target.value)} placeholder="0.00"
+                    className={`w-full bg-slate-800 border text-white rounded-md pl-4 pr-1 py-1 text-xs font-mono focus:outline-none focus:ring-1 ${belowS2 ? "border-orange-500/50 focus:ring-orange-500/40" : buy > 0 ? "border-sky-500/40 focus:ring-sky-500/40" : "border-slate-700"}`} />
+                </div>
+              </div>
+              <div>
+                <p className="text-[9px] font-semibold text-red-400 uppercase tracking-wider mb-0.5">SL {valid ? fmtPct(stopPct) : ""}</p>
+                <div className="relative">
+                  <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">$</span>
+                  <input type="number" value={row.stopLoss} onChange={e => onUpdate({ stopLoss: e.target.value })} placeholder="0.00"
+                    className={`w-full bg-slate-800 border text-white rounded-md pl-4 pr-1 py-1 text-xs font-mono focus:outline-none focus:ring-1 ${valid ? "border-red-500/40 focus:ring-red-500/40" : "border-slate-700"}`} />
+                </div>
+              </div>
+            </div>
+
+            {/* Qty / R:R row */}
+            {valid && qty > 0 && (
+              <div className="flex items-center gap-3 px-1">
+                <span className="text-[9px] text-slate-500 uppercase tracking-wider">Qty</span>
+                <span className="text-white font-semibold text-sm">{qty}</span>
+                <span className="text-slate-700">·</span>
+                <span className="text-[9px] text-slate-500">Cash</span>
+                <span className="text-slate-300 font-mono text-xs">${cashUsed >= 1000 ? fmt(cashUsed/1000,1)+"k" : fmt(cashUsed)}</span>
+                <span className="text-slate-700">·</span>
+                <span className="text-[9px] text-slate-500">R:R</span>
+                <span className={`font-bold text-sm ${rrRatio >= 2 ? "text-emerald-400" : rrRatio >= 1 ? "text-yellow-400" : "text-red-400"}`}>{rrRatio.toFixed(1)}x</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Chart tab */}
+        {mobileTab === "chart" && (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-1 justify-end">
+              {(["1d", "15m", "5m"] as const).map(mode => {
+                const isRec = PHASE_META[phase].recommended === mode;
+                const label = mode === "5m" ? "5m" : mode === "15m" ? "15m" : "1D";
+                return (
+                  <button key={mode} onClick={() => setChartMode(mode)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all ${chartMode === mode ? "bg-sky-500/20 text-sky-400 border border-sky-500/40" : "text-slate-600 border border-slate-800"}`}
+                  >
+                    {label}{isRec && <span className="ml-1 text-[8px] text-emerald-400">▲</span>}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="h-48 rounded-lg overflow-hidden bg-slate-800/30">
+              <MiniChart
+                key={chartMode}
+                bars={chartMode === "5m" ? row.bars5m : chartMode === "15m" ? row.bars15m : row.bars1d}
+                pivots={row.pivots} entry={buy} target={target} stop={stop}
+                defaultVisible={chartMode === "5m" ? 156 : chartMode === "15m" ? 78 : 60}
+                showDate={chartMode !== "5m"}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── DESKTOP layout (unchanged) ───────────────────────────────────── */}
+      <div className="hidden md:flex gap-3 p-4">
+
+        {/* LEFT SECTION */}
+        <div className="flex gap-2">
+
+          {/* CPP column */}
           {cppLevels.length > 0 && (
             <div className="shrink-0">
               <div className="mb-1 flex items-center gap-1">
@@ -669,39 +835,14 @@ function SymbolRow({ row, accountSize, dailyLimit, slPct, tgtPct, screenerColorM
               </div>
               <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest mb-0.5 px-1">CPP</p>
               <div className="flex flex-col">
-                {[...cppLevels].reverse().map(({ label, value, color }) => {
-                  const isActive  = buy > 0 && Math.abs(buy - value) < 0.005;
-                  const isBest    = label === bestCppLabel;
-                  const { dots, score } = pivotConfidence(value, label);
-                  const dotTip = [
-                    dots[0] ? "RVOL ✓" : "RVOL ✗",
-                    dots[1] ? "RSI ✓"  : "RSI ✗",
-                    dots[2] ? "Near ✓" : "Near ✗",
-                  ].join(" · ");
-                  return (
-                    <button
-                      key={label}
-                      onClick={() => handleBuyPrice(value.toFixed(2))}
-                      title={`${label} $${fmt(value)} — ${dotTip}`}
-                      className={`flex items-center gap-2 px-2 py-[3px] rounded transition-all hover:bg-slate-800/80 ${isActive ? "bg-slate-800" : ""} ${isBest && !isActive ? "bg-emerald-950/40" : ""}`}
-                    >
-                      <span className="text-[10px] font-bold w-4 text-right" style={{ color }}>{label}</span>
-                      <span className={`font-mono text-[11px] tabular-nums ${isActive ? "text-white" : "text-slate-400"}`}>${fmt(value)}</span>
-                      {/* Confidence dots */}
-                      <span className="flex gap-[3px] ml-auto pl-1">
-                        {dots.map((lit, i) => (
-                          <span key={i} style={{ display: "inline-block", width: 5, height: 5, borderRadius: "50%", backgroundColor: lit ? "#4ade80" : "#334155" }} />
-                        ))}
-                      </span>
-                      {isBest && !isActive && <span className="text-emerald-400 text-[8px] font-bold leading-none">✦</span>}
-                    </button>
-                  );
-                })}
+                {[...cppLevels].reverse().map(({ label, value, color }) =>
+                  renderPivotBtn(label, value, color, buy > 0 && Math.abs(buy - value) < 0.005, label === bestCppLabel)
+                )}
               </div>
             </div>
           )}
 
-          {/* ── FIB column — LTP header ── */}
+          {/* FIB column */}
           {fibLevels.length > 0 && (
             <div className="shrink-0">
               <div className="mb-1 px-1 h-[30px] flex items-center">
@@ -712,47 +853,18 @@ function SymbolRow({ row, accountSize, dailyLimit, slPct, tgtPct, screenerColorM
               </div>
               <p className="text-[9px] font-bold text-slate-600 uppercase tracking-widest mb-0.5 px-1">FIB</p>
               <div className="flex flex-col">
-                {[...fibLevels].reverse().map(({ label, value, color }) => {
-                  const isActive  = buy > 0 && Math.abs(buy - value) < 0.005;
-                  const isBest    = label === bestFibLabel;
-                  const { dots, score } = pivotConfidence(value, label);
-                  const dotTip = [
-                    dots[0] ? "RVOL ✓" : "RVOL ✗",
-                    dots[1] ? "RSI ✓"  : "RSI ✗",
-                    dots[2] ? "Near ✓" : "Near ✗",
-                  ].join(" · ");
-                  return (
-                    <button
-                      key={label}
-                      onClick={() => handleBuyPrice(value.toFixed(2))}
-                      title={`${label} $${fmt(value)} — ${dotTip}`}
-                      className={`flex items-center gap-2 px-2 py-[3px] rounded transition-all hover:bg-slate-800/80 ${isActive ? "bg-slate-800" : ""} ${isBest && !isActive ? "bg-emerald-950/40" : ""}`}
-                    >
-                      <span className="text-[10px] font-bold w-4 text-right" style={{ color }}>{label}</span>
-                      <span className={`font-mono text-[11px] tabular-nums ${isActive ? "text-white" : "text-slate-400"}`}>${fmt(value)}</span>
-                      {/* Confidence dots */}
-                      {score > 0 && (
-                        <span className="flex gap-[3px] ml-auto pl-1">
-                          {dots.map((lit, i) => (
-                            <span key={i} className={`w-[5px] h-[5px] rounded-full ${lit ? "bg-emerald-400" : "bg-slate-700"}`} />
-                          ))}
-                        </span>
-                      )}
-                      {isBest && !isActive && <span className="text-emerald-400 text-[8px] font-bold leading-none">✦</span>}
-                    </button>
-                  );
-                })}
+                {[...fibLevels].reverse().map(({ label, value, color }) =>
+                  renderPivotBtn(label, value, color, buy > 0 && Math.abs(buy - value) < 0.005, label === bestFibLabel)
+                )}
               </div>
             </div>
           )}
 
-          {/* ── Divider ── */}
+          {/* Divider */}
           {cppLevels.length > 0 && <div className="w-px bg-slate-800 mx-1 self-stretch" />}
 
-          {/* ── Trade inputs column — QTY header ── */}
+          {/* Trade inputs column */}
           <div className="flex gap-2 shrink-0">
-
-            {/* Vertical connector line — offset past QTY header */}
             <div className="flex flex-col items-center shrink-0 pt-[30px]">
               <div className={`w-2 h-2 rounded-full border shrink-0 ${valid && target > buy ? "border-emerald-400 bg-emerald-400/20" : "border-slate-700"}`} />
               <div className={`w-px flex-1 min-h-[18px] ${valid ? "bg-gradient-to-b from-emerald-400/50 to-sky-400/50" : "bg-slate-800"}`} />
@@ -760,8 +872,6 @@ function SymbolRow({ row, accountSize, dailyLimit, slPct, tgtPct, screenerColorM
               <div className={`w-px flex-1 min-h-[18px] ${valid ? "bg-gradient-to-b from-sky-400/50 to-red-400/50" : "bg-slate-800"}`} />
               <div className={`w-2 h-2 rounded-full border shrink-0 ${valid ? "border-red-400 bg-red-400/20" : "border-slate-700"}`} />
             </div>
-
-            {/* Inputs */}
             <div className="flex flex-col gap-1.5 w-24">
               {/* QTY header */}
               <div className="relative group cursor-default h-[30px] flex items-center">
@@ -773,7 +883,7 @@ function SymbolRow({ row, accountSize, dailyLimit, slPct, tgtPct, screenerColorM
                       <div className="bg-slate-800 border border-slate-600 rounded-lg shadow-xl p-3 flex gap-4 whitespace-nowrap">
                         <div>
                           <p className="text-[9px] text-slate-500 uppercase tracking-wider mb-0.5">Cash</p>
-                          <p className="text-white font-mono text-sm">${cashUsed >= 1000 ? fmt(cashUsed / 1000, 1) + "k" : fmt(cashUsed)}</p>
+                          <p className="text-white font-mono text-sm">${cashUsed >= 1000 ? fmt(cashUsed/1000,1)+"k" : fmt(cashUsed)}</p>
                           <p className={`text-[10px] font-mono ${cashPct > 50 ? "text-orange-400" : cashPct > 25 ? "text-yellow-400" : "text-slate-400"}`}>{cashPct.toFixed(1)}%</p>
                         </div>
                         <div className="w-px bg-slate-700" />
@@ -800,16 +910,13 @@ function SymbolRow({ row, accountSize, dailyLimit, slPct, tgtPct, screenerColorM
               </div>
               {/* TARGET */}
               <div>
-                <p className="text-[9px] font-semibold text-emerald-400 uppercase tracking-wider mb-0.5">
-                  TGT {valid && target > buy ? fmtPct(targetPct) : ""}
-                </p>
+                <p className="text-[9px] font-semibold text-emerald-400 uppercase tracking-wider mb-0.5">TGT {valid && target > buy ? fmtPct(targetPct) : ""}</p>
                 <div className="relative">
                   <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs">$</span>
-                  <input type="number" value={row.limitSell} onChange={(e) => onUpdate({ limitSell: e.target.value })} placeholder="0.00"
+                  <input type="number" value={row.limitSell} onChange={e => onUpdate({ limitSell: e.target.value })} placeholder="0.00"
                     className={`${inputBase} focus:ring-emerald-500/40 ${valid && target > buy ? "border-emerald-500/40" : "border-slate-700"}`} />
                 </div>
               </div>
-
               {/* ENTRY */}
               <div>
                 <p className={`text-[9px] font-semibold uppercase tracking-wider mb-0.5 ${belowS2 ? "text-orange-400" : "text-sky-400"}`}>
@@ -817,85 +924,71 @@ function SymbolRow({ row, accountSize, dailyLimit, slPct, tgtPct, screenerColorM
                 </p>
                 <div className="relative">
                   <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs">$</span>
-                  <input type="number" value={row.buyPrice} onChange={(e) => handleBuyPrice(e.target.value)} placeholder="0.00"
+                  <input type="number" value={row.buyPrice} onChange={e => handleBuyPrice(e.target.value)} placeholder="0.00"
                     className={`${inputBase} focus:ring-sky-500/40 ${belowS2 ? "border-orange-500/50" : buy > 0 ? "border-sky-500/40" : "border-slate-700"}`} />
                 </div>
               </div>
-
               {/* STOP */}
               <div>
-                <p className="text-[9px] font-semibold text-red-400 uppercase tracking-wider mb-0.5">
-                  SL {valid ? fmtPct(stopPct) : ""}
-                </p>
+                <p className="text-[9px] font-semibold text-red-400 uppercase tracking-wider mb-0.5">SL {valid ? fmtPct(stopPct) : ""}</p>
                 <div className="relative">
                   <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs">$</span>
-                  <input type="number" value={row.stopLoss} onChange={(e) => onUpdate({ stopLoss: e.target.value })} placeholder="0.00"
+                  <input type="number" value={row.stopLoss} onChange={e => onUpdate({ stopLoss: e.target.value })} placeholder="0.00"
                     className={`${inputBase} focus:ring-red-500/40 ${valid ? "border-red-500/40" : "border-slate-700"}`} />
                 </div>
               </div>
-            </div>{/* end inputs div */}
-          </div>{/* end trade inputs outer */}
-      </div>{/* end left section */}
+            </div>
+          </div>
+        </div>
 
-      {/* ── Right column: chart ── */}
-      <div className="flex-1 min-w-0 flex flex-col gap-1">
-        <div className="flex items-center gap-1.5 justify-end">
-          {/* Phase badge */}
-          {(() => {
-            const pm = PHASE_META[phase];
-            return (
+        {/* RIGHT: chart */}
+        <div className="flex-1 min-w-0 flex flex-col gap-1">
+          <div className="flex items-center gap-1.5 justify-end">
+            {(() => { const pm = PHASE_META[phase]; return (
               <span className={`px-2 py-0.5 rounded text-[9px] font-medium border ${pm.color} ${pm.bg} ${pm.border} mr-auto`}>
                 {pm.label} <span className="opacity-60">{pm.time}</span>
               </span>
-            );
-          })()}
-
-          {/* Chart mode buttons with hover tooltip */}
-          {(["1d", "15m", "5m"] as const).map(mode => {
-            const pm    = PHASE_META[phase];
-            const meta  = pm.charts[mode];
-            const isRec = pm.recommended === mode;
-            const label = mode === "5m" ? "5m · 1D" : mode === "15m" ? "15m · 3D" : "1D · 3mo";
-            return (
-              <div key={mode} className="relative">
-                <button
-                  onClick={() => setChartMode(mode)}
-                  onMouseEnter={() => setHoveredBtn(mode)}
-                  onMouseLeave={() => setHoveredBtn(null)}
-                  className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all ${
-                    chartMode === mode
-                      ? "bg-sky-500/20 text-sky-400 border border-sky-500/40"
-                      : "text-slate-600 border border-slate-800 hover:text-slate-400 hover:border-slate-700"
-                  }`}
-                >
-                  {label}
-                  {isRec && <span className="ml-1 text-[8px] text-emerald-400 opacity-80">▲</span>}
-                </button>
-
-                {hoveredBtn === mode && (
-                  <div className="absolute bottom-full right-0 mb-2 z-20 w-64 rounded-lg bg-slate-800 border border-slate-700 p-2.5 shadow-xl pointer-events-none">
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <span className={`text-[10px] font-semibold ${meta.roleColor}`}>{meta.role}</span>
-                      <span className="text-[10px] text-slate-500">· {mode === "5m" ? "5-min" : mode === "15m" ? "15-min" : "daily"}</span>
+            ); })()}
+            {(["1d", "15m", "5m"] as const).map(mode => {
+              const pm    = PHASE_META[phase];
+              const meta  = pm.charts[mode];
+              const isRec = pm.recommended === mode;
+              const label = mode === "5m" ? "5m · 1D" : mode === "15m" ? "15m · 3D" : "1D · 3mo";
+              return (
+                <div key={mode} className="relative">
+                  <button
+                    onClick={() => setChartMode(mode)}
+                    onMouseEnter={() => setHoveredBtn(mode)}
+                    onMouseLeave={() => setHoveredBtn(null)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all ${chartMode === mode ? "bg-sky-500/20 text-sky-400 border border-sky-500/40" : "text-slate-600 border border-slate-800 hover:text-slate-400 hover:border-slate-700"}`}
+                  >
+                    {label}{isRec && <span className="ml-1 text-[8px] text-emerald-400 opacity-80">▲</span>}
+                  </button>
+                  {hoveredBtn === mode && (
+                    <div className="absolute bottom-full right-0 mb-2 z-20 w-64 rounded-lg bg-slate-800 border border-slate-700 p-2.5 shadow-xl pointer-events-none">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className={`text-[10px] font-semibold ${meta.roleColor}`}>{meta.role}</span>
+                        <span className="text-[10px] text-slate-500">· {mode === "5m" ? "5-min" : mode === "15m" ? "15-min" : "daily"}</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-relaxed">{meta.tip}</p>
+                      <div className="absolute bottom-[-5px] right-4 w-2 h-2 bg-slate-800 border-r border-b border-slate-700 rotate-45" />
                     </div>
-                    <p className="text-[10px] text-slate-400 leading-relaxed">{meta.tip}</p>
-                    <div className="absolute bottom-[-5px] right-4 w-2 h-2 bg-slate-800 border-r border-b border-slate-700 rotate-45" />
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex-1 h-44 rounded-lg overflow-hidden bg-slate-800/30">
+            <MiniChart
+              key={chartMode}
+              bars={chartMode === "5m" ? row.bars5m : chartMode === "15m" ? row.bars15m : row.bars1d}
+              pivots={row.pivots} entry={buy} target={target} stop={stop}
+              defaultVisible={chartMode === "5m" ? 156 : chartMode === "15m" ? 78 : 60}
+              showDate={chartMode !== "5m"}
+            />
+          </div>
         </div>
-        <div className="flex-1 h-44 rounded-lg overflow-hidden bg-slate-800/30">
-          <MiniChart
-            key={chartMode}
-            bars={chartMode === "5m" ? row.bars5m : chartMode === "15m" ? row.bars15m : row.bars1d}
-            pivots={row.pivots}
-            entry={buy} target={target} stop={stop}
-            defaultVisible={chartMode === "5m" ? 156 : chartMode === "15m" ? 78 : 60}
-            showDate={chartMode !== "5m"}
-          />
-        </div>
+
       </div>
 
     </div>
@@ -948,7 +1041,16 @@ export default function TradePage() {
   const runScreenerPopulation = useCallback(async (clearUser = false) => {
     setPopulating(true);
     try {
-      const screeners = getSavedScreeners();
+      // Load screeners from server (works across devices), fall back to localStorage
+      let screeners = getSavedScreeners();
+      try {
+        const res = await fetch("/api/screeners");
+        const serverScreeners = await res.json();
+        if (Array.isArray(serverScreeners) && serverScreeners.length > 0) {
+          screeners = serverScreeners;
+          localStorage.setItem("multi-chart-screeners", JSON.stringify(serverScreeners));
+        }
+      } catch { /* use localStorage fallback */ }
 
       const symbolMap = new Map<string, Set<string>>(); // symbol → source labels
 
@@ -984,11 +1086,13 @@ export default function TradePage() {
       }
 
       // ── Rising stocks with score > 90 ────────────────────────────────────
+      let risingMetricsMap = new Map<string, { rsi: number; rvol: number; streak: number }>();
       try {
         const risingRes  = await fetch("/api/rising");
         const risingJson = await risingRes.json();
-        const risingStocks: { symbol: string; score: number }[] = risingJson.stocks ?? [];
+        const risingStocks: { symbol: string; score: number; rsi: number; rvol: number; streak: number }[] = risingJson.stocks ?? [];
         for (const s of risingStocks) {
+          risingMetricsMap.set(s.symbol, { rsi: s.rsi, rvol: s.rvol, streak: s.streak });
           if (s.score > 90) {
             if (!symbolMap.has(s.symbol)) symbolMap.set(s.symbol, new Set());
             symbolMap.get(s.symbol)!.add("Rising 90+");
@@ -1020,8 +1124,13 @@ export default function TradePage() {
       const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
       setScreenerRunDate(today);
 
-      // Replace rows (the rows→localStorage sync effect will persist symbols)
-      setRows(symbols.length > 0 ? symbols.map(s => makeRow(s, meta[s])) : [makeRow()]);
+      // Replace rows — patch rising metrics directly so no second fetch is needed
+      setRows(symbols.length > 0 ? symbols.map(s => {
+        const r = makeRow(s, meta[s]);
+        const m = risingMetricsMap.get(s);
+        return m ? { ...r, rsi: m.rsi, rvol: m.rvol, streak: m.streak } : r;
+      }) : [makeRow()]);
+      setLastUpdated(new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true, timeZone: "America/New_York" }));
       setLastPopulated(new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true }));
     } catch (e) {
       console.error("Screener population failed", e);
@@ -1041,11 +1150,6 @@ export default function TradePage() {
     }, 30_000);
     return () => clearInterval(t);
   }, [runScreenerPopulation]);
-
-  // Re-fetch rising metrics whenever rows are repopulated
-  useEffect(() => {
-    if (lastPopulated) fetchRisingMetrics();
-  }, [lastPopulated, fetchRisingMetrics]);
 
   // On mount: load rising metrics + auto-populate if market past close
   useEffect(() => {
@@ -1076,7 +1180,6 @@ export default function TradePage() {
         if (toAdd.length === 0) return prev;
         return [...prev, ...toAdd.map(s => makeRow(s, meta[s]?.length ? meta[s] : ["User Selected"]))];
       });
-      fetchRisingMetrics();
     };
     window.addEventListener("trade-list-change", handler);
     return () => window.removeEventListener("trade-list-change", handler);
@@ -1112,7 +1215,6 @@ export default function TradePage() {
     meta[pickerSymbol] = ["User Selected"];
     setTradeMetadata(meta);
     setRows(prev => [...prev, makeRow(pickerSymbol, ["User Selected"])]);
-    fetchRisingMetrics();
   };
 
   const removeRow = (id: number) => {
@@ -1130,16 +1232,18 @@ export default function TradePage() {
 
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 p-6">
+    <main className="min-h-screen bg-slate-950 text-slate-100 p-3 md:p-6">
       <div className="max-w-7xl mx-auto space-y-4">
 
         {/* Header + global controls */}
-        <div className="flex items-start justify-between gap-4 flex-wrap">
+
+        {/* ── Desktop header ── */}
+        <div className="hidden md:flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-white">Trade</h1>
             <p className="text-sm text-slate-400 mt-0.5">Position sizing and OCO trade planner — pivot levels, targets, and stops per symbol</p>
           </div>
-          <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex flex-wrap items-center gap-2 md:gap-3">
             {lastUpdated && (
               <span className="text-[11px] text-slate-500 tabular-nums">Updated {lastUpdated}</span>
             )}
@@ -1173,7 +1277,7 @@ export default function TradePage() {
             </div>
             {account > 0 && (
               <span className="text-[11px] text-slate-500 tabular-nums">
-                = ${(limit).toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                = ${limit.toLocaleString("en-US", { maximumFractionDigits: 0 })}
               </span>
             )}
             <div className="h-6 w-px bg-slate-800" />
@@ -1195,9 +1299,82 @@ export default function TradePage() {
           </div>
         </div>
 
+        {/* ── Mobile header ── */}
+        <div className="md:hidden space-y-2">
+          <div className="flex items-center justify-between">
+            <h1 className="text-xl font-bold text-white">Trade</h1>
+            <div className="flex items-center gap-2">
+              {lastUpdated && (
+                <span className="text-[10px] text-slate-500 tabular-nums">{lastUpdated}</span>
+              )}
+              <button
+                onClick={() => runScreenerPopulation()}
+                disabled={populating}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-slate-300 transition-all disabled:opacity-50"
+              >
+                <svg width="12" height="12" viewBox="0 0 13 13" fill="none" className={populating ? "animate-spin" : ""}>
+                  <path d="M11.5 6.5A5 5 0 1 1 9 2.07" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+                  <path d="M9 1v3h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                {populating ? "Running…" : "Run"}
+              </button>
+            </div>
+          </div>
+
+          {/* Labeled 4-col grid */}
+          <div className="grid grid-cols-4 gap-2 bg-slate-900 border border-slate-800 rounded-xl p-3">
+            {/* Account */}
+            <div className="col-span-2">
+              <p className="text-[10px] text-slate-500 mb-1">Account</p>
+              <div className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
+                <input type="number" value={accountSize} onChange={e => setAccountSize(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg pl-5 pr-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-sky-500/50" />
+              </div>
+            </div>
+            {/* SL */}
+            <div>
+              <p className="text-[10px] text-red-400 font-semibold mb-1">SL</p>
+              <div className="relative">
+                <input type="number" value={slPct} min="0.1" max="20" step="0.1"
+                  onChange={e => setSlPct(e.target.value)}
+                  className="w-full bg-slate-800 border border-red-500/40 text-white rounded-lg pl-2 pr-5 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-red-500/60" />
+                <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">%</span>
+              </div>
+            </div>
+            {/* TGT */}
+            <div>
+              <p className="text-[10px] text-emerald-400 font-semibold mb-1">TGT</p>
+              <div className="relative">
+                <input type="number" value={tgtPct} min="0.1" max="50" step="0.1"
+                  onChange={e => setTgtPct(e.target.value)}
+                  className="w-full bg-slate-800 border border-emerald-500/40 text-white rounded-lg pl-2 pr-5 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-emerald-500/60" />
+                <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">%</span>
+              </div>
+            </div>
+            {/* Daily Limit */}
+            <div className="col-span-2">
+              <p className="text-[10px] text-slate-500 mb-1">Daily Limit</p>
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <input type="number" value={dailyLimit} min="0" max="100" step="5"
+                    onChange={e => { const v = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)); setDailyLimit(String(v)); }}
+                    className="w-full bg-slate-800 border border-slate-700 text-white rounded-lg pl-2 pr-5 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-sky-500/50" />
+                  <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-500 text-[10px]">%</span>
+                </div>
+                {account > 0 && (
+                  <span className="text-[10px] text-slate-400 tabular-nums shrink-0">
+                    =${limit >= 1000 ? (limit / 1000).toFixed(0) + "k" : limit.toFixed(0)}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Screener legend */}
         {allScreenerNames.length > 0 && (
-          <div className="flex items-center gap-2 flex-wrap px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800">
+          <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800">
             <span className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider shrink-0">Screeners:</span>
             {allScreenerNames.map((name) => {
               const color = screenerColorMap[name];

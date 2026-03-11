@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import RefreshRing from "@/components/RefreshRing";
-import { getMarketSession } from "@/lib/marketSession";
 import AddToTradeButton from "@/components/AddToTradeButton";
+import { safeJson } from "@/lib/fetch";
+import { useAutoRefresh } from "@/lib/hooks/useAutoRefresh";
 
 interface RisingStock {
   symbol: string;
@@ -32,12 +33,6 @@ interface Summary {
 }
 
 type SortKey = "score" | "ret1d" | "ret5d" | "ret20d" | "rsi" | "rvol" | "streak";
-
-async function safeJson(res: Response) {
-  const text = await res.text();
-  if (!text) throw new Error(`Empty response (${res.status})`);
-  try { return JSON.parse(text); } catch { throw new Error(text.slice(0, 120)); }
-}
 
 function pct(v: number, digits = 2) {
   return `${v >= 0 ? "+" : ""}${v.toFixed(digits)}%`;
@@ -113,18 +108,17 @@ export default function RisingPage() {
   const [sector, setSector] = useState("All");
   const [minScore, setMinScore] = useState(0);
   const [onlyRising, setOnlyRising] = useState(false);
-  const [countdown, setCountdown] = useState(60);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/rising");
-      const data = await safeJson(res);
-      if (data.error) throw new Error(data.error);
-      setStocks(data.stocks ?? []);
-      setSummary(data.summary ?? null);
-      setGeneratedAt(data.generatedAt ?? null);
+      const data = await safeJson(res) as Record<string, unknown>;
+      if (data.error) throw new Error(data.error as string);
+      setStocks((data.stocks as RisingStock[]) ?? []);
+      setSummary((data.summary as Summary) ?? null);
+      setGeneratedAt((data.generatedAt as string) ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -132,19 +126,7 @@ export default function RisingPage() {
     }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
-
-  useEffect(() => {
-    setCountdown(60);
-    const t = setInterval(() => {
-      if (getMarketSession() === "closed") return;
-      setCountdown((c) => {
-        if (c <= 1) { fetchData(); return 60; }
-        return c - 1;
-      });
-    }, 1000);
-    return () => clearInterval(t);
-  }, [fetchData]);
+  const { countdown, refresh } = useAutoRefresh(fetchData, 60);
 
   const handleSort = (key: SortKey) => {
     if (key === sortKey) setSortDir((d) => d === "desc" ? "asc" : "desc");
@@ -165,22 +147,22 @@ export default function RisingPage() {
   }, [stocks, sector, minScore, onlyRising, sortKey, sortDir]);
 
   return (
-    <div className="max-w-7xl mx-auto p-6 space-y-5">
+    <div className="max-w-7xl mx-auto p-3 md:p-6 space-y-3 md:space-y-5">
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Rising Stocks</h1>
-          <p className="text-sm text-slate-400 mt-0.5">
+          <h1 className="text-xl md:text-2xl font-bold text-white">Rising Stocks</h1>
+          <p className="hidden md:block text-sm text-slate-400 mt-0.5">
             Momentum ranking across 50 blue chips — scored by trend strength, RSI, and volume
           </p>
         </div>
         <div className="flex items-center gap-3">
           {generatedAt && (
-            <span className="text-[11px] text-slate-500 tabular-nums">
+            <span className="hidden md:inline text-[11px] text-slate-500 tabular-nums">
               Updated {new Date(generatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true, timeZone: "America/New_York" })}
             </span>
           )}
-          <RefreshRing countdown={countdown} total={60} loading={loading} onClick={() => { fetchData(); setCountdown(60); }} />
+          <RefreshRing countdown={countdown} total={60} loading={loading} onClick={refresh} />
         </div>
       </div>
 
@@ -246,7 +228,8 @@ export default function RisingPage() {
           <span className="animate-spin inline-block mr-2">↻</span>Computing momentum signals…
         </div>
       ) : (
-        <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-x-auto">
+        <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-x-auto -mx-0">
+          <div className="min-w-[700px]">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-800">
@@ -359,6 +342,7 @@ export default function RisingPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

@@ -4,8 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { BLUE_CHIPS } from "@/lib/bluechips";
 import RefreshRing from "@/components/RefreshRing";
-import { getMarketSession } from "@/lib/marketSession";
 import AddToTradeButton from "@/components/AddToTradeButton";
+import { safeJson } from "@/lib/fetch";
+import { TIMEFRAMES, LOOKBACKS, SECTORS } from "@/lib/timeframes";
+import { useAutoRefresh } from "@/lib/hooks/useAutoRefresh";
+import { detectTrend, type Trend } from "@/lib/screenerLogic";
 import type { OHLCBar, SMAConfig } from "@/components/CandlestickChart";
 
 const CandlestickChart = dynamic(() => import("@/components/CandlestickChart"), { ssr: false });
@@ -35,33 +38,6 @@ interface Screener {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const TIMEFRAMES = [
-  { label: "1m",  value: "1m",  defaultDays: 2,    maxDays: 7    },
-  { label: "3m",  value: "3m",  defaultDays: 3,    maxDays: 7    }, // synthetic from 1m
-  { label: "5m",  value: "5m",  defaultDays: 5,    maxDays: 60   },
-  { label: "15m", value: "15m", defaultDays: 14,   maxDays: 60   },
-  { label: "30m", value: "30m", defaultDays: 20,   maxDays: 60   },
-  { label: "1H",  value: "1h",  defaultDays: 30,   maxDays: 730  },
-  { label: "1D",  value: "1d",  defaultDays: 90,   maxDays: 1826 },
-  { label: "1W",  value: "1wk", defaultDays: 730,  maxDays: 1826 },
-  { label: "1Mo", value: "1mo", defaultDays: 1826, maxDays: 1826 },
-];
-
-const LOOKBACKS = [
-  { label: "1D",  days: 1    },
-  { label: "2D",  days: 2    },
-  { label: "5D",  days: 5    },
-  { label: "2W",  days: 14   },
-  { label: "1M",  days: 30   },
-  { label: "3M",  days: 90   },
-  { label: "6M",  days: 180  },
-  { label: "1Y",  days: 365  },
-  { label: "2Y",  days: 730  },
-  { label: "5Y",  days: 1826 },
-];
-
-const SECTORS = ["All", ...Array.from(new Set(BLUE_CHIPS.map((c) => c.sector)))];
-
 const COLS_OPTIONS = [
   { label: "1", value: 1 },
   { label: "2", value: 2 },
@@ -80,52 +56,11 @@ const DEFAULT_SMAS: SMAConfig[] = [
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function safeJson(res: Response) {
-  const text = await res.text();
-  if (!text) throw new Error(`Empty response (${res.status})`);
-  try { return JSON.parse(text); } catch { throw new Error(text.slice(0, 120)); }
-}
-
-// Compute the last `windowSize` SMA values from bar closes
-function smaSlice(bars: OHLCBar[], period: number, windowSize: number): number[] {
-  if (bars.length < period) return [];
-  const out: number[] = [];
-  // Only compute the last `windowSize` values
-  const start = Math.max(period - 1, bars.length - windowSize);
-  for (let i = start; i < bars.length; i++) {
-    let sum = 0;
-    for (let j = i - period + 1; j <= i; j++) sum += bars[j].close;
-    out.push(sum / period);
-  }
-  return out;
-}
-
-type Trend = "up" | "sideways" | "down";
-
-// Compare avg of first-half vs second-half of the recent SMA window
-function detectTrend(bars: OHLCBar[], period: number): Trend {
-  const window = Math.min(10, Math.max(4, Math.ceil(period / 3)));
-  const vals = smaSlice(bars, period, window);
-  if (vals.length < 4) return "sideways";
-
-  const mid = Math.floor(vals.length / 2);
-  const avgFirst  = vals.slice(0, mid).reduce((s, v) => s + v, 0) / mid;
-  const avgSecond = vals.slice(mid).reduce((s, v) => s + v, 0) / (vals.length - mid);
-  const pct = (avgSecond - avgFirst) / avgFirst * 100;
-
-  if (pct >  0.25) return "up";
-  if (pct < -0.25) return "down";
-  return "sideways";
-}
-
-
-// Returns true if the last candle is green AND its close is within proximityPct%
-// of the SMA for ANY of the given periods.
+// Re-exported from lib for use in the filter logic
 function isSignalCandidate(bars: OHLCBar[], periods: number[], proximityPct: number): boolean {
   if (bars.length === 0 || periods.length === 0) return false;
   const last = bars[bars.length - 1];
-  if (last.close < last.open) return false; // must be green
-  // AND condition: stock must be within proximity of ALL selected SMAs
+  if (last.close < last.open) return false;
   return periods.every((period) => {
     if (bars.length < period) return false;
     let sum = 0;
@@ -296,7 +231,6 @@ export default function MultiChartsPage() {
   const [screeners, setScreeners] = useState<Screener[]>([]);
   const [activeScreenerId, setActiveScreenerId] = useState<string | null>(null);
   const [dataTimestamp, setDataTimestamp] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState(60);
   const [showSaveInput, setShowSaveInput] = useState(false);
   const [savingName, setSavingName] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ display: false, overlays: false, filters: false });
@@ -304,19 +238,41 @@ export default function MultiChartsPage() {
 
   const toggleSection = (key: string) => setCollapsed(prev => ({ ...prev, [key]: !prev[key] }));
 
-  // Load screeners + restore last active screener's full settings on mount
+  // Load screeners from server (source of truth), fall back to localStorage
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("multi-chart-screeners");
-      if (!raw) return;
-      const parsed: Screener[] = JSON.parse(raw);
-      setScreeners(parsed);
-      const lastId = localStorage.getItem("multi-chart-screeners-active");
-      if (lastId) {
-        const active = parsed.find((s) => s.id === lastId);
-        if (active) loadScreener(active);
+    async function init() {
+      let parsed: Screener[] = [];
+      try {
+        const res = await fetch("/api/screeners");
+        const data: Screener[] = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          parsed = data;
+          localStorage.setItem("multi-chart-screeners", JSON.stringify(data));
+        } else {
+          // Fall back to localStorage if server has nothing yet
+          const raw = localStorage.getItem("multi-chart-screeners");
+          if (raw) {
+            parsed = JSON.parse(raw);
+            // Migrate localStorage screeners to server
+            await fetch("/api/screeners", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(parsed) });
+          }
+        }
+      } catch {
+        try {
+          const raw = localStorage.getItem("multi-chart-screeners");
+          if (raw) parsed = JSON.parse(raw);
+        } catch { /* ignore */ }
       }
-    } catch { /* ignore */ }
+      if (parsed.length > 0) {
+        setScreeners(parsed);
+        const lastId = localStorage.getItem("multi-chart-screeners-active");
+        if (lastId) {
+          const active = parsed.find((s) => s.id === lastId);
+          if (active) loadScreener(active);
+        }
+      }
+    }
+    init();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -325,6 +281,11 @@ export default function MultiChartsPage() {
     if (activeScreenerId) localStorage.setItem("multi-chart-screeners-active", activeScreenerId);
     else localStorage.removeItem("multi-chart-screeners-active");
   }, [activeScreenerId]);
+
+  function persistScreeners(updated: Screener[]) {
+    localStorage.setItem("multi-chart-screeners", JSON.stringify(updated));
+    fetch("/api/screeners", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(updated) }).catch(() => {});
+  }
 
   const saveScreener = () => {
     const name = savingName.trim();
@@ -346,7 +307,7 @@ export default function MultiChartsPage() {
     };
     const updated = [...screeners, screener];
     setScreeners(updated);
-    localStorage.setItem("multi-chart-screeners", JSON.stringify(updated));
+    persistScreeners(updated);
     setSavingName("");
     setShowSaveInput(false);
   };
@@ -378,7 +339,7 @@ export default function MultiChartsPage() {
       candidateProximity,
     });
     setScreeners(updated);
-    localStorage.setItem("multi-chart-screeners", JSON.stringify(updated));
+    persistScreeners(updated);
   };
 
   const moveScreener = (id: string, dir: -1 | 1) => {
@@ -389,14 +350,14 @@ export default function MultiChartsPage() {
     const updated = [...screeners];
     [updated[idx], updated[newIdx]] = [updated[newIdx], updated[idx]];
     setScreeners(updated);
-    localStorage.setItem("multi-chart-screeners", JSON.stringify(updated));
+    persistScreeners(updated);
   };
 
   const deleteScreener = (id: string) => {
     const updated = screeners.filter((s) => s.id !== id);
     setScreeners(updated);
     if (activeScreenerId === id) setActiveScreenerId(null);
-    localStorage.setItem("multi-chart-screeners", JSON.stringify(updated));
+    persistScreeners(updated);
   };
 
   const fetchCharts = useCallback(async (tf: string, sec: string, days: number) => {
@@ -416,13 +377,14 @@ export default function MultiChartsPage() {
 
     try {
       const res = await fetch(url, { signal: controller.signal });
-      const json = await safeJson(res);
-      if (json.error) throw new Error(json.error);
+      const json = await safeJson(res) as Record<string, unknown>;
+      if (json.error) throw new Error(json.error as string);
 
+      const batchData = (json.data ?? {}) as Record<string, { bars: OHLCBar[] }>;
       const entries: ChartEntry[] = BLUE_CHIPS
         .filter((c) => sec === "All" || c.sector === sec)
         .map((chip) => {
-          const d = json.data?.[chip.symbol];
+          const d = batchData[chip.symbol];
           return { symbol: chip.symbol, name: chip.name, sector: chip.sector, bars: d?.bars ?? [] };
         });
 
@@ -449,19 +411,8 @@ export default function MultiChartsPage() {
     setLookbackDays(def);
   };
 
-  useEffect(() => { fetchCharts(timeframe, sector, lookbackDays); }, [timeframe, sector, lookbackDays, fetchCharts]);
-
-  useEffect(() => {
-    setCountdown(60);
-    const t = setInterval(() => {
-      if (getMarketSession() === "closed") return;
-      setCountdown((c) => {
-        if (c <= 1) { fetchCharts(timeframe, sector, lookbackDays); return 60; }
-        return c - 1;
-      });
-    }, 1000);
-    return () => clearInterval(t);
-  }, [fetchCharts, timeframe, sector, lookbackDays]);
+  const refreshFn = useCallback(() => fetchCharts(timeframe, sector, lookbackDays), [fetchCharts, timeframe, sector, lookbackDays]);
+  const { countdown, refresh } = useAutoRefresh(refreshFn, 60);
 
   // Memoize expensive filtering — detectTrend runs per-chart per-SMA, skip on unrelated re-renders
   const { candidates, visibleCharts } = useMemo(() => {
@@ -495,19 +446,19 @@ export default function MultiChartsPage() {
   };
 
   return (
-    <div className="max-w-[1600px] mx-auto p-4 space-y-4">
+    <div className="max-w-[1600px] mx-auto p-3 md:p-4 space-y-3 md:space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Screeners</h1>
-          <p className="text-sm text-slate-400 mt-0.5">
+          <h1 className="text-xl md:text-2xl font-bold text-white">Screeners</h1>
+          <p className="hidden md:block text-sm text-slate-400 mt-0.5">
             All stocks at a glance — shared timeframe and moving averages across every chart
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0 pt-0.5">
           {dataTimestamp && (
-            <span className="text-[11px] text-slate-500 tabular-nums">Updated {dataTimestamp}</span>
+            <span className="hidden md:inline text-[11px] text-slate-500 tabular-nums">Updated {dataTimestamp}</span>
           )}
-          <RefreshRing countdown={countdown} total={60} loading={loading} onClick={() => { fetchCharts(timeframe, sector, lookbackDays); setCountdown(60); }} />
+          <RefreshRing countdown={countdown} total={60} loading={loading} onClick={refresh} />
         </div>
       </div>
 
@@ -603,10 +554,10 @@ export default function MultiChartsPage() {
           <span className="transition-transform duration-200" style={{ transform: collapsed.display ? "rotate(-90deg)" : "rotate(0)" }}>&#9662;</span>
           Display
         </button>
-        <div className={`flex flex-wrap items-center gap-3 overflow-hidden transition-all duration-200 ${collapsed.display ? "max-h-0 pb-0" : "max-h-40 pb-3"}`}>
+        <div className={`flex flex-wrap items-center gap-3 overflow-hidden transition-all duration-200 ${collapsed.display ? "max-h-0 pb-0" : "max-h-[400px] md:max-h-40 pb-3"}`}>
 
           {/* Timeframe */}
-          <div className="flex rounded-lg overflow-hidden border border-slate-700">
+          <div className="flex rounded-lg overflow-x-auto border border-slate-700 max-w-full">
             {TIMEFRAMES.map((tf) => (
               <button
                 key={tf.value}
@@ -627,7 +578,7 @@ export default function MultiChartsPage() {
             const maxDays = TIMEFRAMES.find((t) => t.value === timeframe)?.maxDays ?? 1826;
             const visible = LOOKBACKS.filter((l) => l.days <= maxDays);
             return (
-              <div className="flex rounded-lg overflow-hidden border border-slate-700">
+              <div className="flex rounded-lg overflow-x-auto border border-slate-700 max-w-full">
                 {visible.map((l) => (
                   <button
                     key={l.days}
@@ -685,7 +636,7 @@ export default function MultiChartsPage() {
             <span className="text-white font-mono w-8">{chartHeight}</span>
           </div>
 
-          <div className="ml-auto flex items-center gap-3 text-xs text-slate-500">
+          <div className="flex items-center gap-3 text-xs text-slate-500">
             <span>{charts.length} charts</span>
           </div>
         </div>
@@ -698,7 +649,7 @@ export default function MultiChartsPage() {
           <span className="transition-transform duration-200" style={{ transform: collapsed.overlays ? "rotate(-90deg)" : "rotate(0)" }}>&#9662;</span>
           Overlays
         </button>
-        <div className={`overflow-hidden transition-all duration-200 ${collapsed.overlays ? "max-h-0 pb-0" : "max-h-40 pb-3"}`}>
+        <div className={`overflow-hidden transition-all duration-200 ${collapsed.overlays ? "max-h-0 pb-0" : "max-h-[300px] md:max-h-40 pb-3"}`}>
           <SMAControls
             smas={smas}
             palette={PALETTE}

@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import RefreshRing from "@/components/RefreshRing";
-import { getMarketSession } from "@/lib/marketSession";
 import AddToTradeButton from "@/components/AddToTradeButton";
+import { useAutoRefresh } from "@/lib/hooks/useAutoRefresh";
 import type { TechRow, TfLabel } from "@/app/api/technicals/route";
 import type { SignalLabel, MAComponent } from "@/lib/indicators";
 
@@ -91,12 +91,11 @@ export default function TechnicalsPage() {
   const [sector, setSector]       = useState("All");
   const [search, setSearch]       = useState("");
   const [sort, setSort]           = useState<{ key: SortKey; asc: boolean }>({ key: "score", asc: false });
-  const [countdown, setCountdown] = useState(60);
 
-  const load = useCallback(async (bust = false) => {
+  const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const res = await fetch(bust ? `/api/technicals?bust=${Date.now()}` : "/api/technicals");
+      const res = await fetch(`/api/technicals?bust=${Date.now()}`);
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       setRows(json.rows ?? []); setFetchedAt(json.fetchedAt ?? null);
@@ -104,19 +103,7 @@ export default function TechnicalsPage() {
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
-
-  useEffect(() => {
-    setCountdown(60);
-    const t = setInterval(() => {
-      if (getMarketSession() === "closed") return;
-      setCountdown((c) => {
-        if (c <= 1) { load(true); return 60; }
-        return c - 1;
-      });
-    }, 1000);
-    return () => clearInterval(t);
-  }, [load]);
+  const { countdown, refresh } = useAutoRefresh(load, 60);
 
   const sectors = useMemo(
     () => ["All", ...Array.from(new Set(rows.map(r => r.sector))).sort()],
@@ -188,30 +175,30 @@ export default function TechnicalsPage() {
 
 
   return (
-    <div className="max-w-[1500px] mx-auto px-4 py-6 space-y-5">
+    <div className="max-w-[1500px] mx-auto px-3 md:px-4 py-4 md:py-6 space-y-4 md:space-y-5">
 
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Technical Analysis</h1>
-          <p className="text-sm text-slate-400 mt-0.5">
+          <h1 className="text-xl md:text-2xl font-bold text-white">Technical Analysis</h1>
+          <p className="hidden md:block text-sm text-slate-400 mt-0.5">
             Multi-timeframe signals + MA breakdown — all 50 blue chips, grouped by symbol
           </p>
         </div>
         <div className="flex items-center gap-3">
           {fetchedAt && (
-            <span className="text-[11px] text-slate-500 tabular-nums">
+            <span className="hidden md:inline text-[11px] text-slate-500 tabular-nums">
               Updated {new Date(fetchedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true, timeZone: "America/New_York" })}
             </span>
           )}
-          <RefreshRing countdown={countdown} total={60} loading={loading} onClick={() => { load(true); setCountdown(60); }} />
+          <RefreshRing countdown={countdown} total={60} loading={loading} onClick={refresh} />
         </div>
       </div>
 
       {/* Overview banner */}
       {overview && !loading && (
         <div className="rounded-xl bg-slate-900 border border-slate-800 p-4 space-y-3">
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
               { label: "Bullish", value: overview.bullish,                  color: "text-green-400",   note: "score > 3" },
               { label: "Neutral", value: overview.neutral,                  color: "text-slate-400",   note: "−3 to +3" },
@@ -250,7 +237,7 @@ export default function TechnicalsPage() {
 
       {/* Signal distributions — two side-by-side strips */}
       {!loading && rows.length > 0 && (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
           {/* TF distribution */}
           <div className="rounded-xl bg-slate-900 border border-slate-800 p-4">
             <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
@@ -304,7 +291,7 @@ export default function TechnicalsPage() {
       <div className="flex flex-wrap items-center gap-3">
         <input type="text" placeholder="Search symbol or name…" value={search}
           onChange={e => setSearch(e.target.value)}
-          className="px-3 py-1.5 rounded-md bg-slate-900 border border-slate-700 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 w-52" />
+          className="px-3 py-1.5 rounded-md bg-slate-900 border border-slate-700 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 w-full md:w-52" />
         <select value={sector} onChange={e => setSector(e.target.value)}
           className="px-3 py-1.5 rounded-md bg-slate-900 border border-slate-700 text-sm text-slate-200 focus:outline-none focus:border-sky-500">
           {sectors.map(s => <option key={s}>{s}</option>)}
@@ -322,7 +309,7 @@ export default function TechnicalsPage() {
 
       {/* ── Unified table ── */}
       <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden">
-        <div>
+        <div className="overflow-x-auto">
           <table className="w-full text-xs border-collapse">
             <thead>
               {/* Group headers */}
@@ -469,7 +456,7 @@ export default function TechnicalsPage() {
       </div>
 
       {/* Legend */}
-      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600">
+      <div className="hidden md:flex flex-wrap gap-x-5 gap-y-1 text-xs text-slate-600">
         <span>TF Score = signal weights (+2 S.Buy → −2 S.Sell) across all 9 timeframes</span>
         <span>MA Score = daily components (+1 Buy / −1 Sell): SMA20, SMA50, GX, EMA12, EMA26, EMA200</span>
         <div className="flex items-center gap-2 ml-auto">

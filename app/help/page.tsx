@@ -131,23 +131,23 @@ const COLOR_MAP: Record<string, { badge: string; ring: string; icon: string; dot
 
 export default function HelpPage() {
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-8">
+    <div className="max-w-5xl mx-auto p-3 md:p-6 space-y-6 md:space-y-8">
       {/* Header */}
       <div className="space-y-1">
-        <h1 className="text-2xl font-bold text-white">Help &amp; Reference</h1>
+        <h1 className="text-xl md:text-2xl font-bold text-white">Help &amp; Reference</h1>
         <p className="text-sm text-slate-400">What each section does and how to use it.</p>
       </div>
 
       {/* Page cards */}
-      <div className="space-y-4">
+      <div className="space-y-3 md:space-y-4">
         {PAGES.map((page) => {
           const c = COLOR_MAP[page.color] ?? COLOR_MAP.sky;
           return (
             <div
               key={page.href}
-              className={`rounded-xl bg-slate-900 border border-slate-800 p-6 transition-colors duration-200 ${c.ring}`}
+              className={`rounded-xl bg-slate-900 border border-slate-800 p-4 md:p-6 transition-colors duration-200 ${c.ring}`}
             >
-              <div className="flex items-start gap-5">
+              <div className="flex items-start gap-3 md:gap-5">
                 {/* Icon + label */}
                 <div className="shrink-0 w-10 h-10 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center">
                   <span className={`text-lg leading-none ${c.icon}`}>{page.icon}</span>
@@ -197,11 +197,11 @@ export default function HelpPage() {
       </div>
 
       {/* Concepts & Calculations */}
-      <div className="space-y-4">
+      <div className="space-y-3 md:space-y-4">
         <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Concepts &amp; Calculations</h2>
 
         {/* Momentum indicators */}
-        <div className="rounded-xl bg-slate-900 border border-slate-800 p-6 space-y-5">
+        <div className="rounded-xl bg-slate-900 border border-slate-800 p-4 md:p-6 space-y-5">
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Momentum Indicators — importance order for day trading</h3>
 
           {/* RVOL */}
@@ -337,13 +337,13 @@ export default function HelpPage() {
         </div>
 
         {/* Chart Timeframe Guide */}
-        <div className="rounded-xl bg-slate-900 border border-slate-800 p-6 space-y-4">
+        <div className="rounded-xl bg-slate-900 border border-slate-800 p-4 md:p-6 space-y-4">
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Chart Timeframes — When to Watch What</h3>
           <ChartTimeframeGuide />
         </div>
 
         {/* Trade calculations */}
-        <div className="rounded-xl bg-slate-900 border border-slate-800 p-6 space-y-5">
+        <div className="rounded-xl bg-slate-900 border border-slate-800 p-4 md:p-6 space-y-5">
           <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Trade Page — Position Sizing</h3>
 
           <div className="space-y-3">
@@ -391,7 +391,7 @@ export default function HelpPage() {
       </div>
 
       {/* Signal legend */}
-      <div className="rounded-xl bg-slate-900 border border-slate-800 p-6 space-y-4">
+      <div className="rounded-xl bg-slate-900 border border-slate-800 p-4 md:p-6 space-y-4">
         <h2 className="text-sm font-semibold text-slate-300 uppercase tracking-wider">Signal Legend</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-xs">
           <div className="space-y-2">

@@ -8,33 +8,9 @@ import { BLUE_CHIPS } from "@/lib/bluechips";
 import type { OHLCBar, SMAConfig } from "@/components/CandlestickChart";
 import { calcTechSignal, computeMASignals, computeTechIndicators, computeEMA, type SignalLabel, type MAComponent, type MAResult, type TechIndicator } from "@/lib/indicators";
 import AddToTradeButton from "@/components/AddToTradeButton";
+import { TIMEFRAMES, LOOKBACKS } from "@/lib/timeframes";
 
 const CandlestickChart = dynamic(() => import("@/components/CandlestickChart"), { ssr: false });
-
-const TIMEFRAMES = [
-  { label: "1m",  value: "1m",  defaultDays: 2,   maxDays: 7    },
-  { label: "3m",  value: "3m",  defaultDays: 3,   maxDays: 7    }, // synthetic from 1m
-  { label: "5m",  value: "5m",  defaultDays: 5,   maxDays: 60   },
-  { label: "15m", value: "15m", defaultDays: 14,  maxDays: 60   },
-  { label: "30m", value: "30m", defaultDays: 20,  maxDays: 60   },
-  { label: "1H",  value: "1h",  defaultDays: 30,  maxDays: 730  },
-  { label: "1D",  value: "1d",  defaultDays: 90,   maxDays: 1826 },
-  { label: "1W",  value: "1wk", defaultDays: 730,  maxDays: 1826 },
-  { label: "1Mo", value: "1mo", defaultDays: 1826, maxDays: 1826 },
-];
-
-const LOOKBACKS = [
-  { label: "1D",  days: 1    },
-  { label: "2D",  days: 2    },
-  { label: "5D",  days: 5    },
-  { label: "2W",  days: 14   },
-  { label: "1M",  days: 30   },
-  { label: "3M",  days: 90   },
-  { label: "6M",  days: 180  },
-  { label: "1Y",  days: 365  },
-  { label: "2Y",  days: 730  },
-  { label: "5Y",  days: 1826 },
-];
 
 const SMA_PRESETS: SMAConfig[] = [
   { period: 22, color: "#38bdf8", visible: true }, // light blue
@@ -508,25 +484,25 @@ function ChartsContent() {
   const combinedNorm = (maNorm + tfNorm) / 2;
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-3 space-y-3">
+    <div className="max-w-7xl mx-auto px-3 md:px-6 py-3 space-y-3">
       {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-4">
+      <div className="flex items-start justify-between flex-wrap gap-2 md:gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Equity</h1>
-          <p className="text-sm text-slate-400 mt-0.5">
+          <h1 className="text-xl md:text-2xl font-bold text-white">Equity</h1>
+          <p className="text-xs md:text-sm text-slate-400 mt-0.5">
             Interactive candlestick chart with multi-timeframe technical analysis
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           {lastUpdated && (
-            <span className="text-[11px] text-slate-500 tabular-nums">Updated {lastUpdated}</span>
+            <span className="hidden sm:inline text-[11px] text-slate-500 tabular-nums">Updated {lastUpdated}</span>
           )}
           <RefreshRing countdown={countdown} total={60} loading={loading} onClick={() => { refreshAll(); setCountdown(60); }} />
         </div>
       </div>
 
       {/* Row 1: Symbol + info + price tiles + Fair Value */}
-      <div className="rounded-xl bg-slate-900 border border-slate-800 px-4 py-2 flex items-center gap-4 flex-wrap">
+      <div className="rounded-xl bg-slate-900 border border-slate-800 px-3 md:px-4 py-2 flex items-center gap-2 md:gap-4 flex-wrap">
         {/* Symbol + info */}
         <div className="flex items-center gap-1.5 shrink-0">
           <select
@@ -667,7 +643,7 @@ function ChartsContent() {
 
       {/* Price ranges row — OHLC mini bars */}
       {currentClose !== null && (
-        <div className="rounded-xl bg-slate-900 border border-slate-800 px-4 py-2.5 flex items-center gap-4 flex-wrap">
+        <div className="rounded-xl bg-slate-900 border border-slate-800 px-3 md:px-4 py-2.5 flex items-center gap-x-3 md:gap-x-4 gap-y-2 flex-wrap">
           {ranges.map(({ label, data }) => {
             const isIntraday = ["1Mi","3Mi","5Mi","15Mi","1Hr","4Hr"].includes(label);
             if (!data) {
@@ -712,10 +688,10 @@ function ChartsContent() {
       )}
 
       {/* Combined analysis panel: TF | Oscillators | MAs */}
-      <div className="rounded-xl bg-slate-900 border border-slate-800 flex items-stretch divide-x divide-slate-800">
+      <div className="rounded-xl bg-slate-900 border border-slate-800 flex flex-col md:flex-row md:items-stretch md:divide-x md:divide-slate-800 divide-y divide-slate-800 md:divide-y-0">
 
         {/* Section 1: TF */}
-        <div className="flex flex-col px-3 py-2 shrink-0">
+        <div className="flex flex-col px-3 py-2 md:shrink-0">
           <div className="mb-1.5 pb-1.5 border-b border-slate-800 shrink-0">
             <p className="flex items-center gap-2">
               <span className={`text-xs font-bold ${summaryLabelColor(tfSummary.label)}`}>● {tfSummary.label.toUpperCase()}</span>
@@ -753,7 +729,7 @@ function ChartsContent() {
         </div>
 
         {/* Section 2: 12 oscillators in 4×3 grid */}
-        <div className="flex-1 flex flex-col px-3 py-2">
+        <div className="flex-1 min-w-0 flex flex-col px-3 py-2">
           <div className="mb-1.5 pb-1.5 border-b border-slate-800 shrink-0">
             <p className="flex items-center gap-2">
               <span className={`text-xs font-bold ${summaryLabelColor(indSummary.label)}`}>● {indSummary.label.toUpperCase()}</span>
@@ -767,7 +743,7 @@ function ChartsContent() {
               Sell: <span className="text-orange-400 font-semibold">{indSummary.sell}</span>
             </p>
           </div>
-          <div className="grid grid-cols-4 gap-x-2 gap-y-1 flex-1 auto-rows-fr">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-x-2 gap-y-1 flex-1 auto-rows-fr">
             {techIndicators.map(ind => {
               const sigColor =
                 ind.signal === "Strong Buy"      ? "text-green-400"  :
@@ -794,7 +770,7 @@ function ChartsContent() {
         </div>
 
         {/* Section 3: MA5–MA200 in 3×2 grid */}
-        <div className="flex flex-col px-3 py-2 shrink-0">
+        <div className="flex flex-col px-3 py-2 md:shrink-0">
           <div className="mb-1.5 pb-1.5 border-b border-slate-800 shrink-0">
             <p className="flex items-center gap-2">
               <span className={`text-xs font-bold ${summaryLabelColor(maSummary.label)}`}>● {maSummary.label.toUpperCase()}</span>
@@ -808,7 +784,7 @@ function ChartsContent() {
               Sell: <span className="text-orange-400 font-semibold">{maSummary.sell}</span>
             </p>
           </div>
-          <div className="grid grid-cols-3 gap-x-3 gap-y-1 flex-1 auto-rows-fr">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-x-3 gap-y-1 flex-1 auto-rows-fr">
             {maRows.map(row => {
               const smaColor = row.smaSignal === "Buy" ? "text-green-300" : "text-orange-400";
               const emaColor = row.emaSignal === "Buy" ? "text-green-300" : "text-orange-400";
@@ -835,9 +811,9 @@ function ChartsContent() {
 
       {/* Pivot Points table */}
       {pivotPoints && (
-        <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden">
+        <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-x-auto">
           {/* Header */}
-          <div className="grid grid-cols-8 border-b border-slate-800">
+          <div className="grid grid-cols-8 border-b border-slate-800 min-w-[560px]">
             <div className="px-3 py-1.5">
               {rangeBars[rangeBars.length - 1] && (
                 <span className="text-[9px] text-slate-500">
@@ -855,7 +831,7 @@ function ChartsContent() {
           {pivotPoints.map((row, ri) => {
             const fmt = (v: number | null) => v === null ? "—" : v.toFixed(2);
             return (
-              <div key={row.name} className={`grid grid-cols-8 ${ri % 2 === 1 ? "bg-slate-800/30" : ""} border-b border-slate-800/50 last:border-0`}>
+              <div key={row.name} className={`grid grid-cols-8 min-w-[560px] ${ri % 2 === 1 ? "bg-slate-800/30" : ""} border-b border-slate-800/50 last:border-0`}>
                 <div className="px-3 py-1.5 text-[11px] text-slate-300 font-medium">{row.name}</div>
                 <div className="px-3 py-1.5 text-[11px] font-mono text-center text-red-400">{fmt(row.s3)}</div>
                 <div className="px-3 py-1.5 text-[11px] font-mono text-center text-red-400/80">{fmt(row.s2)}</div>
@@ -871,7 +847,7 @@ function ChartsContent() {
       )}
 
       {/* Chart controls row — MA + timeframe + lookback */}
-      <div className="flex flex-wrap gap-3 items-center">
+      <div className="flex flex-wrap gap-2 md:gap-3 items-center">
         {/* MA dropdown */}
         <div className="relative">
           <button
@@ -958,7 +934,7 @@ function ChartsContent() {
         </div>
 
         {/* Timeframe selector */}
-        <div className="flex rounded-lg overflow-hidden border border-slate-700">
+        <div className="flex flex-wrap rounded-lg border border-slate-700 overflow-hidden">
           {TIMEFRAMES.map((tf) => (
             <button
               key={tf.value}
@@ -981,7 +957,7 @@ function ChartsContent() {
           const maxDays = TIMEFRAMES.find((t) => t.value === timeframe)?.maxDays ?? 1826;
           const visible = LOOKBACKS.filter((l) => l.days <= maxDays);
           return (
-            <div className="flex rounded-lg overflow-hidden border border-slate-700">
+            <div className="flex flex-wrap rounded-lg border border-slate-700 overflow-hidden">
               {visible.map((l) => (
                 <button
                   key={l.days}
@@ -1001,7 +977,7 @@ function ChartsContent() {
       </div>
 
       {/* Chart */}
-      <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden relative" style={{ height: "430px" }}>
+      <div className="rounded-xl bg-slate-900 border border-slate-800 overflow-hidden relative w-full" style={{ height: "430px" }}>
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80 z-10">
             <span className="animate-spin text-3xl text-slate-400">↻</span>
